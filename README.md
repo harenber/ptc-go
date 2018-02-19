@@ -1,4 +1,4 @@
-# ptc-go - driver for SCS PACTOR modems for the Pat Winlink-client
+# ptc-go - SCS PACTOR modems driver for the Pat Winlink-client
 
 ## What is this?
 
@@ -65,8 +65,8 @@ The code has tested against the PTC-II and -III series of the SCS PTC
 modems. It should work with USB, serial and Bluetooth connections. The
 P4 Dragon seems to use a non-standard baudrate on the serial line,
 which is not supported by the underlying Go package. So for the time
-being, these new modems are unforunately **not** supported. If you
-feel you can contribute, please feel free to comment on https://github.com/harenber/ptc-go/issues/3
+being, these new modems are unfortunately **not** supported. If you
+think you can contribute, please feel free to comment on https://github.com/harenber/ptc-go/issues/3
 
 ## What is missing
 
