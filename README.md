@@ -59,6 +59,21 @@ To overwrite one or the other default in the config.json, you may use
 pat connect "ptc:///PJ2A?host=/dev/ttyUSB0&baud=57600"
 ```
 
+#### using Packet radio
+
+(for advanced users only)
+
+You can change the PTC to use PACKET radio instead of PACTOR by moving
+the PACTOR channel away from the default channel 4 (Channel is a data
+stream inside the WA8DED protocol). The easiest way to do that is to
+add a
+
+```
+PTCH 1
+```
+
+to the script which is called by `custom_init_script`. 
+
 ## Supported hardware
 
 The code has tested against the PTC-II and -III series of the SCS PTC
@@ -82,6 +97,12 @@ If you feel you are able to contribute, you are more than
 welcome. Please comment on the appropreate issues.
 
 Furthermore, tests on non-Linux systems would be appreciated.
+
+## Debugging
+
+Setting an environment variable `ptc_debug` will enable some more
+debug messages. This feature will become more verbose in the future
+and will probably include the data transferred from and to the PACTOR modem.
 
 ## Seeking help
 

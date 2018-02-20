@@ -71,6 +71,10 @@ type reader interface {
 	ReadString(delim byte) (line string, err error)
 }
 
+func debugEnabled() bool {
+	return os.Getenv("ptc_debug") != ""
+}
+
 func (p *pmodem) HandleIOError(hint string, err error) {
 	if err != nil {
 		if p.closecalled == false {
@@ -152,7 +156,9 @@ func (p *pmodem) Read(b []byte) (n int, err error) {
 	case msg := <-p.rxbuffer:
 		a = len(msg)
 		if len(b) < len(msg) {
-			log.Println("BUFFER IS TOO SMALL!!!!")
+			if debugEnabled() {
+				log.Println("BUFFER IS TOO SMALL!!!!")
+			}
 		}
 
 		//log.Println("<<<PT<<< " + strconv.Itoa(len(msg)) + ": " + hex.EncodeToString(msg))
@@ -161,7 +167,9 @@ func (p *pmodem) Read(b []byte) (n int, err error) {
 		//		}
 		copy(b, msg)
 	case <-time.After(1 * time.Second):
-		log.Println("Reading from rxbuffer timed out")
+		if debugEnabled() {
+			log.Println("Reading from rxbuffer timed out")
+		}
 	}
 
 	return a, nil
@@ -200,7 +208,9 @@ func inttobin(in []uint8) (b []byte) {
 	buf := new(bytes.Buffer)
 	err := binary.Write(buf, binary.LittleEndian, in)
 	if err != nil {
-		log.Println("binary.Write failed:", err)
+		if debugEnabled() {
+			log.Println("binary.Write failed:", err)
+		}
 	}
 	return buf.Bytes()
 }
@@ -225,7 +235,9 @@ func (p *pmodem) writeexpect(command string, answer string) (b []byte, err error
 	_, err = p.device.Write([]byte(command + "\r"))
 	//log.Println(">>> " + command)
 	if err != nil {
-		log.Println(err)
+		if debugEnabled() {
+			log.Println(err)
+		}
 		return nil, err
 	}
 
@@ -237,7 +249,9 @@ func (p *pmodem) writeexpect(command string, answer string) (b []byte, err error
 func (p *pmodem) startwa8ded() (err error) {
 	_, err = p.writeexpect("JHOST1", "JHOST1")
 	if err != nil {
-		log.Println("Couldn't go into WA8DED hostmode, no answer to the JHOST1 command")
+		if debugEnabled() {
+			log.Println("Couldn't go into WA8DED hostmode, no answer to the JHOST1 command")
+		}
 	}
 	return err
 }
@@ -259,7 +273,9 @@ func (p *pmodem) readuntil(answer string) (b []byte, err error) {
 	// p.mu.Unlock() (martinhpedersen) See above
 
 	if err != nil {
-		log.Println("Error while reading to the answer " + hex.EncodeToString([]byte(answer)) + ":" + err.Error())
+		if debugEnabled() {
+			log.Println("Error while reading to the answer " + hex.EncodeToString([]byte(answer)) + ":" + err.Error())
+		}
 	}
 	return b, err
 
@@ -278,7 +294,9 @@ func (p *pmodem) readbyte(noofbytes int) ([]byte, error) {
 	n, err := p.device.Read(buf)
 	if err != nil {
 		if err != io.EOF {
-			log.Println(err)
+			if debugEnabled() {
+				log.Println(err)
+			}
 		}
 	}
 	if n != noofbytes {
@@ -296,7 +314,9 @@ func (p *pmodem) rawwrite(channel uint8, iscommand uint8, command string) (err e
 	init := inttobin([]uint8{channel, iscommand, l})
 	if l < 0 {
 		// that should never happen!
-		log.Println("rawwrite: Something is wrong with command ", command, "len is: ", l)
+		if debugEnabled() {
+			log.Println("rawwrite: Something is wrong with command ", command, "len is: ", l)
+		}
 		return errors.New("Command length is negative on rawwrite command")
 	}
 
@@ -334,7 +354,9 @@ func (p *pmodem) mainloop() {
 	// at the moment it just tries to leave the WA8DED hostmode
 	go func() {
 		sig := <-sigs
-		log.Println(sig, "mainloop: signal received, exiting")
+		if debugEnabled() {
+			log.Println(sig, "mainloop: signal received, exiting")
+		}
 		p.endwa8ded()
 	}()
 
@@ -435,7 +457,9 @@ func (p *pmodem) mainloop() {
 		switch string(status) {
 		case "0", "1", "3":
 			// no connection
-			log.Println("Connection ended or lost. Code: " + string(status))
+			if debugEnabled() {
+				log.Println("Connection ended or lost. Code: " + string(status))
+			}
 			p.endwa8ded()
 			return
 		}
@@ -468,7 +492,9 @@ func (p *pmodem) mainloop() {
 			switch string(status) {
 			case "0", "1", "3":
 				//no connection
-				log.Println("connection ended while data was still in the buffer")
+				if debugEnabled() {
+					log.Println("connection ended while data was still in the buffer")
+				}
 				p.txbuffer = nil
 				p.endwa8ded()
 				return
@@ -485,10 +511,14 @@ func (p *pmodem) mainloop() {
 				//time.Sleep(200 * time.Millisecond)
 				b, _ := p.readbyte(2)
 				if b[0] != pactorch {
-					log.Println("CANNOT READ CHANNEL BACK! b is: " + hex.EncodeToString(b))
+					if debugEnabled() {
+						log.Println("CANNOT READ CHANNEL BACK! b is: " + hex.EncodeToString(b))
+					}
 				}
 				if b[1] != byte(0x00) {
-					log.Println("ERROR while sending, error code is: " + string(b))
+					if debugEnabled() {
+						log.Println("ERROR while sending, error code is: " + string(b))
+					}
 				}
 			default:
 				// device is still busy (sending data), nothing we can about it here,
@@ -517,7 +547,9 @@ func (p *pmodem) call() error {
 	// we should have a kind of "command buffer", then a call would be nothing else than a
 	// command added to the command buffer.
 
-	log.Println("Calling " + p.remotecall)
+	if debugEnabled() {
+		log.Println("Calling " + p.remotecall)
+	}
 	p.rawwrite(pactorch, 1, "C "+p.remotecall)
 	//time.Sleep(100 * time.Millisecond)
 	//	a, _ := p.readbyte(2)
@@ -551,7 +583,9 @@ func (p *pmodem) call() error {
 				//time.Sleep(1 * time.Second)
 			case "0":
 				//disconnected, no link
-				log.Println("no connection or connection timed out")
+				if debugEnabled() {
+					log.Println("no connection or connection timed out")
+				}
 				return errors.New("connect timeout")
 
 			}
@@ -577,7 +611,9 @@ func (p *pmodem) pconnect() error {
 	var err error
 	p.device, err = serial.OpenPort(c)
 	if err != nil {
-		log.Println(err)
+		if debugEnabled() {
+			log.Println(err)
+		}
 		return err
 	}
 
@@ -587,7 +623,9 @@ func (p *pmodem) pconnect() error {
 	// at the moment it just tries to leave the WA8DED hostmode
 	go func() {
 		sig := <-sigs
-		log.Println(sig, "signal received, exiting")
+		if debugEnabled() {
+			log.Println(sig, "signal received, exiting")
+		}
 		p.Close()
 	}()
 	p.writeexpect("QUIT", "cmd: ")
@@ -600,7 +638,9 @@ func (p *pmodem) pconnect() error {
 	} else {
 		file, err := os.Open(p.init_script)
 		if err != nil {
-			log.Println(err)
+			if debugEnabled() {
+				log.Println(err)
+			}
 			return err
 		}
 		defer file.Close()
@@ -611,7 +651,9 @@ func (p *pmodem) pconnect() error {
 		}
 
 		if err := scanner.Err(); err != nil {
-			log.Println(err)
+			if debugEnabled() {
+				log.Println(err)
+			}
 			return err
 		}
 	}
