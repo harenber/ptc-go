@@ -21,10 +21,8 @@ import (
 	"log"
 	"net"
 	"os"
-	"os/signal"
 	"strconv"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/tarm/serial"
@@ -340,17 +338,6 @@ func split(buf []byte, lim int) [][]byte {
 
 func (p *pmodem) mainloop() {
 
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-
-	// function to handle SIGINT, SIGTERM.
-	// at the moment it just tries to leave the WA8DED hostmode
-	go func() {
-		sig := <-sigs
-		writeDebug(sig.String() + " mainloop: signal received, exiting")
-		p.endwa8ded()
-	}()
-
 	//this is the main loop!
 	for p.closecalled == false {
 		// This would be the code to loop over all channels (not needed here)
@@ -581,10 +568,6 @@ func (p *pmodem) pconnect() error {
 	p.rts = make(chan struct{})
 	p.rtd = make(chan struct{})
 
-	//register signals for SIGTERM handling (we at least want to try to set the PTC back to Terminal mode)
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-
 	//Setup serial device
 	c := &serial.Config{Name: p.deviceName, Baud: p.baudRate, ReadTimeout: time.Second * serialtimeout}
 	var err error
@@ -594,15 +577,6 @@ func (p *pmodem) pconnect() error {
 		return err
 	}
 
-	//go p.emulatorthread()
-
-	// function to handle SIGINT, SIGTERM.
-	// at the moment it just tries to leave the WA8DED hostmode
-	go func() {
-		sig := <-sigs
-		writeDebug(sig.String() + "signal received, exiting")
-		p.Close()
-	}()
 	p.writeexpect("QUIT", "cmd: ")
 	p.writeexpect("MY "+p.mycall, "cmd: ")
 	p.writeexpect("PTCH 4", "cmd: ")
