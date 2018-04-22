@@ -12,7 +12,7 @@ with the PACTOR modems using the WA8DED hostmode, enabling full binary transpare
 Note that this is **work in progress**, things may or may not work
 properly. Use it at your own risk. The code is not feature complete yet. It should
 be usable enough to send Winlink messages through a PACTOR (or PACKET)
-channel using a supported PACTOR modems, though.
+channel using a supported PACTOR modem, though.
 
 The code in this repository is independently developed from Pat
 itself, although in close collaboration. Please do not bother Martin, LA5NTA, with 
@@ -28,10 +28,14 @@ Author: Torsten Harenberg, DL1THM
 
 
 The PACTOR support is beta and not included in the standard distribution of [Pat](http://getpat.io) yet. 
-You need to build it manually, however it is not difficult to do this. The Pat version with PACTOR support is
+You need to build a version of Pat manually, however it is not difficult to do so. The Pat version with PACTOR support is
 available as a seperate branch in the source tree. It will pull all dependencies, including this driver.
 
-Go to your [GO src directory](https://golang.org/doc/code.html#Workspaces) and issue
+Some very basic knowledge of using the [Go programming language](https://golang.org/) is helpful. You do not need to write own code!
+
+If you haven't done yet, [download](https://golang.org/dl/) and [install](https://golang.org/doc/install) Go. Get familiar with [the workspace](https://golang.org/doc/code.html#Workspaces). 
+
+Go to your GO src directory and issue
 
 ```
 git clone -b feature/ptc-support https://github.com/la5nta/pat github.com/la5nta/pat
@@ -44,7 +48,7 @@ That will create the binary into the current directory, you may want to move it 
 
 #### setup
 
-Once you have successfully compiled Pat as described above, you .wl2k/config.json file should contain an entry like this:
+Once you have successfully compiled Pat as described above, you should add an entry to your [$HOME/.wl2k/config.json](https://github.com/la5nta/pat/wiki/The-command-line-interface#configure) file like this:
 
 ```json
 	"ptc": {
@@ -61,7 +65,7 @@ could be useful are setting the audio level or any command needed to
 select the right frequency, if you steer your radio through the
 modem. Please check the modem's manual for details. You **do not**
 need to set basic parameters like your callsign with this
-feature. This is handled by the code anyhow.
+feature. This is handled by the code.
 
 ### connect
 
@@ -126,8 +130,9 @@ The code has tested against the PTC-II and -III series of the SCS PTC
 modems. It should work with USB, serial and Bluetooth connections. The
 P4 Dragon seems to use a non-standard baudrate on the serial line,
 which is not supported by the underlying Go package. So for the time
-being, these new modems are unfortunately **not** supported. If you
-think you can contribute, please feel free to comment on https://github.com/harenber/ptc-go/issues/3
+being, these new modems are unfortunately **not** supported, 
+although there has been some [effort](https://github.com/harenber/ptc-go/issues/3) to get those modems running. If you
+think you can contribute, please feel free to comment on [issue #3](https://github.com/harenber/ptc-go/issues/3).
 
 ## What is missing
 
