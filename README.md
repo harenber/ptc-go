@@ -21,11 +21,27 @@ Author: Torsten Harenberg, DL1THM
 
 ### setup
 
-For the time being, you need to compile Pat manually with these
-sources included. Instructions for this are still to be written. So
-this code may only suitable for experiences users.
+#### Compiling
 
-Furthermore, you .wl2k/config.json file should contain an entry like this:
+
+The PACTOR support is beta and not included in the standard distribution of [Pat](http://getpat.io) yet. 
+You need to build it manually, however it is not difficult to do this. The Pat version with PACTOR support is
+available as a seperate branch in the source tree. It will pull all dependencies, including this driver.
+
+Go to your [GO src directory](https://golang.org/doc/code.html#Workspaces) and issue
+
+```
+git clone -b feature/ptc-support https://github.com/la5nta/pat github.com/la5nta/pat
+cd github.com/la5nta/pat
+./make.bash libax25
+./make.bash
+```
+
+That will create the binary into the current directory, you may want to move it to a directory in your PATH.
+
+#### setup
+
+Once you have successfully compiled Pat as described above, you .wl2k/config.json file should contain an entry like this:
 
 ```json
 	"ptc": {
@@ -59,6 +75,33 @@ To overwrite one or the other default in the config.json, you may use
 pat connect "ptc:///PJ2A?host=/dev/ttyUSB0&baud=57600"
 ```
 
+A successful connect looks like this:
+
+```
+pi@pi2 ~/gopackages/src/github.com/la5nta/pat $ ./pat connect ptc:///PJ2A
+2018/04/22 13:16:21 Connecting to PJ2A (ptc)...
+2018/04/22 13:16:23 Connected to PJ2A ()
+PJ2A - Linux RMS Gateway 2.4.0 Oct 24 2017 (FK52nd)
+
+Welcome to the PJ2A Winlink 2000 RMS Gateway. VERONA Radio Club, Curacao, Dutch Caribbean
+ 
+INFO: Host Name sandiego.winlink.org, Port 8772
+Connected
+[WL2K-5.0-B2FWIHJM$]
+;PQ: ABCDEFGH
+CMS via PJ2A >
+>FF
+;PM: DL1THM P7TVSXXASKRJ 987 SERVICE@winlink.org //WL2K User Notice
+FC EM P7TVSXXASKRJ 1873 987 0
+F> DE
+1 proposal(s) received
+Accepting P7TVSXXASKRJ
+Receiving [//WL2K User Notice] [offset 0]
+//WL2K User Notice: 100%
+>FF
+FQ
+```
+
 #### using Packet radio
 
 (for advanced users only)
@@ -88,10 +131,8 @@ think you can contribute, please feel free to comment on https://github.com/hare
 There are a lot of features that would be nice to have and which are
 still under development. Most notably these are:
 
-* listen mode. At the moment, the driver can only call remote station
-but cannot accept connections. 
-* Get rid of interrupt handling inside the driver.
-* P4 Dragon support.
+* listen mode. At the moment, the driver can only call remote station but cannot accept connections. 
+* P4 Dragon support. (see [this issue](https://github.com/harenber/ptc-go/issues/3) for details). As I don't own such a device, feedback is more than welcome.
 
 If you feel you are able to contribute, you are more than
 welcome. Please comment on the appropreate issues.
