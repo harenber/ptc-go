@@ -48,7 +48,7 @@ That will create the binary into the current directory, you may want to move it 
 
 #### setup
 
-Once you have successfully compiled Pat as described above, you should add an entry to your [$HOME/.wl2k/config.json](https://github.com/la5nta/pat/wiki/The-command-line-interface#configure) file like this:
+Once you have successfully compiled Pat as described above, [configure it](https://github.com/la5nta/pat/wiki/The-command-line-interface#configure). Afterwards you should add an entry to your $HOME/.wl2k/config.json file like this:
 
 ```json
 	"ptc": {
