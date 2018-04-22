@@ -50,8 +50,11 @@ type pmodem struct {
 	rxbuffer chan []byte // data FROM PACTOR
 	device   *serial.Port
 
-	mu       sync.Mutex
-	txbuffer []byte // data TO PACTOR
+	mu        sync.Mutex
+	txbuffer  []byte      // data TO PACTOR
+	cmdbuffer chan []byte //commands to the modem
+
+	state int //state of connection
 
 	// if we have an error, we pass it back to Pat
 	err error
@@ -107,6 +110,7 @@ func (p *pmodem) RemoteAddr() net.Addr {
 }
 
 func (p *pmodem) Close() error {
+	writeDebug("Close called")
 	// send a disconnect command to the PTC,
 	p.rawwrite(pactorch, 1, "D")
 	_, p.err = p.readbyte(2)
@@ -127,12 +131,8 @@ func (p *pmodem) Close() error {
 	case <-p.rtd:
 	//
 	case <-time.After(60 * time.Second):
-		//
+		break
 	}
-	//old lock
-	//	for len(p.txbuffer) != 0 {
-	//		time.Sleep(200 * time.Millisecond)
-	//	}
 	p.endwa8ded()
 	return p.err
 }
@@ -255,10 +255,12 @@ func (p *pmodem) startwa8ded() (err error) {
 func (p *pmodem) endwa8ded() (err error) {
 	// call disconnect here "just in case", that should not be needed, but
 	// doesn't harm either.
+	writeDebug("Leaving WA8DED mode")
 	p.rawwrite(pactorch, 1, "D")
 	_, err = p.readbyte(2)
 	p.rawwrite(0, 1, "JHOST0")
 	_, err = p.device.Write([]byte("\r\n"))
+	writeDebug("Left WA8DED mode")
 	return
 }
 
@@ -347,6 +349,15 @@ func (p *pmodem) mainloop() {
 		//				for _, channel := range channels {
 
 		var err error
+
+		//handle commands
+		if len(p.cmdbuffer) != 0 {
+			writeDebug("Handling command")
+			cmd := string(<-p.cmdbuffer)
+			writeDebug("command " + cmd)
+			p.rawwrite(pactorch, 1, cmd)
+		}
+
 		err = p.rawwrite(pactorch, 1, "G")
 
 		if err != nil {
@@ -432,12 +443,19 @@ func (p *pmodem) mainloop() {
 			return
 		}
 		status := l[len(l)-1]
+		p.state = int(status) - 48 //ASCII "1" = 0x31 = 49
 		switch string(status) {
-		case "0", "1", "3":
+		case "0":
 			// no connection
+			// can be during setup or wait. Idle...
+		case "3":
+			// 3 = disconnect request
 			writeDebug("Connection ended or lost. Code: " + string(status))
-			p.endwa8ded()
+			p.Close()
+			//p.endwa8ded()
 			return
+		case "1":
+			//link setup - nothing to do at the moment
 		}
 
 		if len(p.txbuffer) <= maxtxbuffer {
@@ -449,7 +467,7 @@ func (p *pmodem) mainloop() {
 			}
 
 		}
-		//handle commands
+
 		//handle payload
 		if len(p.txbuffer) != 0 {
 			// send data to PACTOR
@@ -470,7 +488,7 @@ func (p *pmodem) mainloop() {
 				//no connection
 				writeDebug("connection ended while data was still in the buffer")
 				p.txbuffer = nil
-				p.endwa8ded()
+				//p.endwa8ded()
 				return
 			case "4":
 				trxdata := ""
@@ -512,61 +530,45 @@ func (p *pmodem) mainloop() {
 
 func (p *pmodem) call() error {
 
-	// The call() routine needs to be simplified:
-	// Once we have a WA8DED mainloop running even without a connection (to support listen mode)
-	// we should have a kind of "command buffer", then a call would be nothing else than a
-	// command added to the command buffer.
-
 	writeDebug("Calling " + p.remotecall)
-	p.rawwrite(pactorch, 1, "C "+p.remotecall)
-	//time.Sleep(100 * time.Millisecond)
-	//	a, _ := p.readbyte(2)
-	//	if a != []byte("\x04\x00") { //connect command failed, should rarely happen
-	//		fmt.Println("PACTOR: Connect command failed")
-	//		return errors.New("PACTOR Connect command failed")
-	//	}
+	//p.rawwrite(pactorch, 1, "C "+p.remotecall)
 
-	connected := false
-	for connected == false {
-		p.rawwrite(pactorch, 1, "L")
-		_, err := p.readbyte(2)
-		// b should be 04 01, just discard
-		l, err := p.readuntil(string(byte(0x00)))
+	p.cmdbuffer <- []byte("C " + p.remotecall)
+	writeDebug("Called!")
 
-		if err != nil {
-			p.HandleIOError("reading reply to the L-command during link setup", err)
-			p.Close()
-		}
-		if len(l) > 0 {
-			status := l[len(l)-1]
-			//log.Println("Antwort auf  L: " + string(l) + "  status is: " + string(status))
-			switch string(status) {
-			case "4":
-				//connected
-				connected = true
-				return nil
+	// We need to wait here a second to have the PTC recognized the connect command
+	// otherwise we cannot disinguish between failed connect and a "not-yet-called" state.
 
-			case "1":
-				//Link setup
-				//time.Sleep(1 * time.Second)
-			case "0":
-				//disconnected, no link
-				writeDebug("no connection or connection timed out")
-				return errors.New("connect timeout")
+	time.Sleep(time.Second)
 
-			}
-		}
+	// ugly hack: counting 1/2 seconds. The PTC leaves the state in 1 = link setup even
+	// if he got an "UA-" after a "SABM+" in packet radio. So we would wait forever...
+	// Avoid this state by explicitly break after one minute.
+
+	hs := 0
+	for (p.state == 1) && (hs < 120) {
+		hs += 1
+		writeDebug("State = " + strconv.Itoa(p.state))
+		// waiting for connection. We need to sleep here otherwise we waste CPU time.
+		time.Sleep(500 * time.Millisecond)
+	}
+	if p.state != 4 {
+		writeDebug("State = " + strconv.Itoa(p.state))
+		p.Close()
+		return errors.New("cannot link")
 	}
 	return nil
 }
-func (p *pmodem) pconnect() error {
+func (p *pmodem) init() error {
 
 	//initalize the buffers
 	//p.rxbuffer = make([]byte, 0)
 	p.rxbuffer = make(chan []byte, 8192)
 	p.txbuffer = make([]byte, 0)
+	p.cmdbuffer = make(chan []byte, 8192)
 	p.rts = make(chan struct{})
 	p.rtd = make(chan struct{})
+	p.state = 0
 
 	//Setup serial device
 	c := &serial.Config{Name: p.deviceName, Baud: p.baudRate, ReadTimeout: time.Second * serialtimeout}
@@ -609,13 +611,7 @@ func (p *pmodem) pconnect() error {
 		return errors.New("Cannot set PTC into WA8DED hostmode")
 	}
 
-	err = p.call()
-	if err != nil {
-		p.Close()
-		p.err = err
-		return p.err
-	}
-
+	//start mainloop
 	go p.mainloop()
 	return nil
 }

@@ -55,7 +55,11 @@ func (p *pmodem) DialURL(url *transport.URL) (net.Conn, error) {
 	}
 	p.mycall = url.User.Username()
 	p.remotecall = url.Target
-	err := p.pconnect()
+	err := p.init()
+	if err != nil {
+		return p, err
+	}
+	err = p.call()
 	return p, err
 
 	//	return Conn{
