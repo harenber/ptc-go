@@ -377,28 +377,53 @@ func (p *pmodem) mainloop() {
 		case byte(0x01):
 			//success to command, null terminated message
 			_, err = p.readuntil(string(byte(0)))
+			if err != nil {
+				p.HandleIOError("reading byte 01 Error: ", err)
+				return
+			}
 			//log.Println("1: channel " + hex.EncodeToString([]byte{channel}) + ": " + hex.EncodeToString(data))
 		case byte(0x02):
 			//error to command, null terminated message
 			_, err = p.readuntil(string(byte(0)))
+			if err != nil {
+				p.HandleIOError("reading byte 02 Error: ", err)
+				return
+			}
 			//log.Println("2: channel " + hex.EncodeToString([]byte{channel}) + ": " + hex.EncodeToString(data))
 		case byte(0x03):
 			// link status, null terminated message
 			_, err = p.readuntil(string(byte(0)))
+			if err != nil {
+				p.HandleIOError("reading byte 03 Error: ", err)
+				return
+			}
 			//log.Println("3: channel " + hex.EncodeToString([]byte{channel}) + ": " + hex.EncodeToString(data))
 		case byte(0x04):
 			//monitor w/o data, null terminated message
 			_, err = p.readuntil(string(byte(0)))
+			if err != nil {
+				p.HandleIOError("reading byte 04 Error: ", err)
+				return
+			}
 			//log.Println("4: channel " + hex.EncodeToString([]byte{channel}) + ": " + hex.EncodeToString(data))
 		case byte(0x05):
 			//monitor with data, null terminated message
 			_, err = p.readuntil(string(byte(0)))
+			if err != nil {
+				p.HandleIOError("reading byte 05 Error: ", err)
+				return
+			}
 			//log.Println("5: channel " + hex.EncodeToString([]byte{channel}) + ": " + hex.EncodeToString(data))
 		case byte(0x06):
 			// Monitor data
 			length, _ := p.readbyte(1)
 			//lust discard monitor data for the time being
 			_, err = p.readbyte(int(length[0]) + 1)
+			if err != nil {
+				p.HandleIOError("reading byte 06 Error: ", err)
+				return
+			}
+
 			//			data, _ := p.readbyte(int(len[0]) + 1)
 			//			p.rxbuffer = append(p.rxbuffer, data...)
 			//p.rxbuffer <- data
