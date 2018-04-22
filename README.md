@@ -29,13 +29,13 @@ Author: Torsten Harenberg, DL1THM
 
 The PACTOR support is beta and not included in the standard distribution of [Pat](http://getpat.io) yet. 
 You need to build a version of Pat manually, however it is not difficult to do so. The Pat version with PACTOR support is
-available as a seperate branch in the source tree. It will pull all dependencies, including this driver.
+available as a seperate branch in the source tree. This [build script](https://github.com/la5nta/pat/blob/master/make.bash) will pull all dependencies, including this driver. So you do not need to bother with this repository.
 
-Some very basic knowledge of using the [Go programming language](https://golang.org/) is helpful. You do not need to write own code!
+Some very basic knowledge of using the [Go programming language](https://golang.org/) is helpful. But you do not need to write own code!
 
 If you haven't done yet, [download](https://golang.org/dl/) and [install](https://golang.org/doc/install) Go. Get familiar with [the workspace](https://golang.org/doc/code.html#Workspaces). 
 
-Go to your GO src directory and issue
+Now go to your GO src directory and issue
 
 ```
 git clone -b feature/ptc-support https://github.com/la5nta/pat github.com/la5nta/pat
@@ -58,6 +58,7 @@ Once you have successfully compiled Pat as described above, [configure it](https
 	},
 ```
 
+Path is the tty to your SCS modem. The example here is from Linux and I haven't tested this on any other platform yet.
 This __custom_init_script__ parameter is completely optional and may
 contain commands which are send to the modem before switching it to
 WA8DED-mode. It is generally not needed! Examples of commands which
@@ -129,11 +130,10 @@ to the script which is called by `custom_init_script`.
 The code has tested against the PTC-II and -III series of the SCS PTC
 modems. It should work with USB, serial and Bluetooth connections. The
 P4 Dragon seems to use a non-standard baudrate on the serial line,
-which is not supported by the underlying Go package. So for the time
+which is not supported by the underlying Go package. And I do not own one of these modems. So for the time
 being, these new modems are unfortunately **not** supported, 
-although there has been some [effort](https://github.com/harenber/ptc-go/issues/3) to get those modems running. If you
-think you can contribute, please feel free to comment on [issue #3](https://github.com/harenber/ptc-go/issues/3).
-
+although there has been some [effort](https://github.com/harenber/ptc-go/tree/feature/p4-dragon) from Martin, LA4NTA, to get those modems running as well. If you
+think you can contribute, please feel free to comment on [issue #3](https://github.com/harenber/ptc-go/issues/3). 
 ## What is missing
 
 There are a lot of features that would be nice to have and which are
