@@ -25,6 +25,9 @@ func (p *pmodem) DialURL(url *transport.URL) (net.Conn, error) {
 	}
 
 	if str := url.Params.Get("host"); str != "" {
+		// make URL parameter "host" higher priority then url.Host in order to allow overwrite
+		p.deviceName = str
+	} else if str := url.Host; str != "" {
 		p.deviceName = str
 	} else {
 		// assume we have a USB PTC at the first USB device if the user hasn't told us anything else
