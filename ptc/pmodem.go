@@ -594,6 +594,7 @@ func (p *pmodem) init() error {
 	p.rts = make(chan struct{})
 	p.rtd = make(chan struct{})
 	p.state = 0
+	p.closecalled = false
 
 	//Setup serial device
 	c := &serial.Config{Name: p.deviceName, Baud: p.baudRate, ReadTimeout: time.Second * serialtimeout}
