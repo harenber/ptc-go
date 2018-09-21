@@ -245,6 +245,7 @@ func (p *pmodem) writeexpect(command string, answer string) (b []byte, err error
 }
 
 func (p *pmodem) startwa8ded() (err error) {
+	writeDebug("Entering WA8DED mode")
 	_, err = p.writeexpect("JHOST1", "JHOST1")
 	if err != nil {
 		writeDebug("Couldn't go into WA8DED hostmode, no answer to the JHOST1 command")
@@ -632,10 +633,10 @@ func (p *pmodem) init() error {
 	}
 
 	err = p.startwa8ded()
-	//log.Println("Entered host mode")
 	if err != nil {
 		return errors.New("Cannot set PTC into WA8DED hostmode")
 	}
+	writeDebug("Entered host mode")
 
 	//start mainloop
 	go p.mainloop()
