@@ -606,13 +606,33 @@ func (p *pmodem) init() error {
 		return err
 	}
 
-	p.writeexpect("QUIT", "cmd: ")
-	p.writeexpect("MY "+p.mycall, "cmd: ")
-	p.writeexpect("PTCH 4", "cmd: ")
+	_, err = p.writeexpect("QUIT", "cmd: ")
+	if err != nil {
+		return err
+	}
+
+	_, err = p.writeexpect("MY "+p.mycall, "cmd: ")
+	if err != nil {
+		return err
+	}
+
+	_, err = p.writeexpect("PTCH 4", "cmd: ")
+	if err != nil {
+		return err
+	}
+
 
 	if p.init_script == "" {
-		p.writeexpect("TONES 4", "cmd: ")
-		p.writeexpect("PAC MON 0", "cmd: ")
+		_, err = p.writeexpect("TONES 4", "cmd: ")
+		if err != nil {
+			return err
+		}
+
+		_, err = p.writeexpect("PAC MON 0", "cmd: ")
+		if err != nil {
+			return err
+		}
+
 	} else {
 		file, err := os.Open(p.init_script)
 		if err != nil {
@@ -623,7 +643,11 @@ func (p *pmodem) init() error {
 
 		scanner := bufio.NewScanner(file)
 		for scanner.Scan() {
-			p.writeexpect(scanner.Text(), "cmd:")
+			_, err = p.writeexpect(scanner.Text(), "cmd:")
+			if err != nil {
+				return err
+			}
+
 		}
 
 		if err := scanner.Err(); err != nil {
