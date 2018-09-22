@@ -166,4 +166,5 @@ Otherwise, feel free to open issues to this repository if you find bugs not repo
 
 First I wish to thank Martin Hebnes Pedersen, LA5NTA, for developing
 Pat, his patience and for his helpful code reviews. Further thanks to my good friend
-Brett Ruiz, PJ2BR, for providing a second station for beta-testing.
+Brett Ruiz, PJ2BR, for providing a second station for beta-testing. And thanks to @blockmurder for
+his patches.
