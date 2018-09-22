@@ -245,6 +245,7 @@ func (p *pmodem) writeexpect(command string, answer string) (b []byte, err error
 }
 
 func (p *pmodem) startwa8ded() (err error) {
+	writeDebug("Entering WA8DED mode")
 	_, err = p.writeexpect("JHOST1", "JHOST1")
 	if err != nil {
 		writeDebug("Couldn't go into WA8DED hostmode, no answer to the JHOST1 command")
@@ -594,6 +595,7 @@ func (p *pmodem) init() error {
 	p.rts = make(chan struct{})
 	p.rtd = make(chan struct{})
 	p.state = 0
+	p.closecalled = false
 
 	//Setup serial device
 	c := &serial.Config{Name: p.deviceName, Baud: p.baudRate, ReadTimeout: time.Second * serialtimeout}
@@ -604,13 +606,33 @@ func (p *pmodem) init() error {
 		return err
 	}
 
-	p.writeexpect("QUIT", "cmd: ")
-	p.writeexpect("MY "+p.mycall, "cmd: ")
-	p.writeexpect("PTCH 4", "cmd: ")
+	_, err = p.writeexpect("QUIT", "cmd: ")
+	if err != nil {
+		return err
+	}
+
+	_, err = p.writeexpect("MY "+p.mycall, "cmd: ")
+	if err != nil {
+		return err
+	}
+
+	_, err = p.writeexpect("PTCH 4", "cmd: ")
+	if err != nil {
+		return err
+	}
+
 
 	if p.init_script == "" {
-		p.writeexpect("TONES 4", "cmd: ")
-		p.writeexpect("PAC MON 0", "cmd: ")
+		_, err = p.writeexpect("TONES 4", "cmd: ")
+		if err != nil {
+			return err
+		}
+
+		_, err = p.writeexpect("PAC MON 0", "cmd: ")
+		if err != nil {
+			return err
+		}
+
 	} else {
 		file, err := os.Open(p.init_script)
 		if err != nil {
@@ -621,7 +643,11 @@ func (p *pmodem) init() error {
 
 		scanner := bufio.NewScanner(file)
 		for scanner.Scan() {
-			p.writeexpect(scanner.Text(), "cmd:")
+			_, err = p.writeexpect(scanner.Text(), "cmd:")
+			if err != nil {
+				return err
+			}
+
 		}
 
 		if err := scanner.Err(); err != nil {
@@ -631,10 +657,10 @@ func (p *pmodem) init() error {
 	}
 
 	err = p.startwa8ded()
-	//log.Println("Entered host mode")
 	if err != nil {
 		return errors.New("Cannot set PTC into WA8DED hostmode")
 	}
+	writeDebug("Entered host mode")
 
 	//start mainloop
 	go p.mainloop()
