@@ -11,7 +11,7 @@ import (
 )
 
 func init() {
-	transport.RegisterDialer("ptc", &pmodem{})
+	transport.RegisterDialer("pactor", &pmodem{})
 }
 
 func (p *pmodem) DialURL(url *transport.URL) (net.Conn, error) {
@@ -20,7 +20,7 @@ func (p *pmodem) DialURL(url *transport.URL) (net.Conn, error) {
 	// url.User.Username() holds the callers (this node's) callsign
 	// url.Params holds any additional parameters
 
-	if url.Scheme != "ptc" {
+	if url.Scheme != "pactor" {
 		return nil, transport.ErrUnsupportedScheme
 	}
 
@@ -65,11 +65,6 @@ func (p *pmodem) DialURL(url *transport.URL) (net.Conn, error) {
 	err = p.call()
 	return p, err
 
-	//	return Conn{
-	//		fd:     strings.NewReader("The PTC driver\rBye bye!\r"),
-	//		local:  Address{Callsign: url.User.Username()},
-	//		remote: Address{Callsign: url.Target},
-	//	}, nil
 }
 
 type Address struct{ Callsign string }

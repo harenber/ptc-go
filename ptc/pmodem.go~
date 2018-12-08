@@ -74,7 +74,7 @@ type reader interface {
 }
 
 func debugEnabled() bool {
-	return os.Getenv("pactor_debug") != ""
+	return os.Getenv("ptc_debug") != ""
 }
 
 func writeDebug(message string) {

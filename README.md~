@@ -86,8 +86,8 @@ pat connect "pactor:///PJ2A?host=/dev/ttyUSB0&baud=57600"
 A successful connect looks like this:
 
 ```
-pi@pi2 ~/gopackages/src/github.com/la5nta/pat $ ./pat connect pactor:///PJ2A
-2018/04/22 13:16:21 Connecting to PJ2A (pactor)...
+pi@pi2 ~/gopackages/src/github.com/la5nta/pat $ ./pat connect ptc:///PJ2A
+2018/04/22 13:16:21 Connecting to PJ2A (ptc)...
 2018/04/22 13:16:23 Connected to PJ2A ()
 PJ2A - Linux RMS Gateway 2.4.0 Oct 24 2017 (FK52nd)
 
@@ -149,7 +149,7 @@ Furthermore, tests on non-Linux systems would be appreciated.
 
 ## Debugging
 
-Setting an environment variable `pactor_debug` will enable some more
+Setting an environment variable `ptc_debug` will enable some more
 debug messages. This feature will become more verbose in the future
 and will probably include the data transferred from and to the PACTOR modem.
 
