@@ -56,6 +56,7 @@ type pmodem struct {
 	cmdbuffer chan []byte //commands to the modem
 
 	state int //state of connection
+	mainRunning bool
 
 	// if we have an error, we pass it back to Pat
 	err error
@@ -117,10 +118,6 @@ func (p *pmodem) RemoteAddr() net.Addr {
 }
 
 func (p *pmodem) Close() error {
-	// send a disconnect command to the PTC,
-	p.rawwrite(pactorch, 1, "D")
-	_, p.err = p.readbyte(2)
-
 	//new lock
 	p.closemu.Lock()
 
@@ -134,6 +131,7 @@ func (p *pmodem) Close() error {
 	if p.closecalled {
 		// Close() was already called so disconnect is already in progress.
 		// Avoid interfering by just return is Close() is called more than once
+		writeDebug("Close allready called before...", 1)
 
 		// release lock
 		p.closemu.Unlock()
@@ -142,19 +140,29 @@ func (p *pmodem) Close() error {
 	}
 
 	p.closecalled = true
-	p.closemu.Unlock()
-	//new lock
+
+	// send a disconnect command to the PTC,
+	writeDebug("Send disconnect command to PTC", 2)
+	p.rawwrite(pactorch, 1, "D")
+	_, p.err = p.readbyte(2)
+
 	//waiting for message queue to be sent, but after one minute, we close and disconnect even if not all data has been sent
 	select {
 	case <-p.rtd:
 		writeDebug("RTD signal received", 2)
 	case <-time.After(60 * time.Second):
 		writeDebug("RTD signal timeout...", 2)
-		break
 	}
+
+	writeDebug("Stop main loop", 1)
+	p.mainRunning = false
 
 	writeDebug("End WA8DED mode...", 1)
 	p.endwa8ded()
+
+	// release lock
+	p.closemu.Unlock()
+
 	return p.err
 }
 
@@ -361,9 +369,15 @@ func split(buf []byte, lim int) [][]byte {
 }
 
 func (p *pmodem) mainloop() {
+	var connected bool
+
+	p.mainRunning = true
+	connected = false
+
+	writeDebug("Start main loop", 1)
 
 	//this is the main loop!
-	for p.closecalled == false {
+	for p.mainRunning {
 		// This would be the code to loop over all channels (not needed here)
 		//		p.rawwrite(0xff, 1, "G")
 		//		b, _ := p.readbyte(2)
@@ -383,13 +397,11 @@ func (p *pmodem) mainloop() {
 		err = p.rawwrite(pactorch, 1, "G")
 		if err != nil {
 			p.HandleIOError("writing G-command", err)
-			return
 		}
 
 		b, err := p.readbyte(2)
 		if err != nil {
 			p.HandleIOError("reading channel after G-command", err)
-			return
 		}
 
 		switch b[1] {
@@ -400,7 +412,6 @@ func (p *pmodem) mainloop() {
 			_, err = p.readuntil(string(byte(0)))
 			if err != nil {
 				p.HandleIOError("reading byte 01 Error: ", err)
-				return
 			}
 			//log.Println("1: channel " + hex.EncodeToString([]byte{channel}) + ": " + hex.EncodeToString(data))
 		case byte(0x02):
@@ -408,7 +419,6 @@ func (p *pmodem) mainloop() {
 			_, err = p.readuntil(string(byte(0)))
 			if err != nil {
 				p.HandleIOError("reading byte 02 Error: ", err)
-				return
 			}
 			//log.Println("2: channel " + hex.EncodeToString([]byte{channel}) + ": " + hex.EncodeToString(data))
 		case byte(0x03):
@@ -416,7 +426,6 @@ func (p *pmodem) mainloop() {
 			_, err = p.readuntil(string(byte(0)))
 			if err != nil {
 				p.HandleIOError("reading byte 03 Error: ", err)
-				return
 			}
 			//log.Println("3: channel " + hex.EncodeToString([]byte{channel}) + ": " + hex.EncodeToString(data))
 		case byte(0x04):
@@ -424,7 +433,6 @@ func (p *pmodem) mainloop() {
 			_, err = p.readuntil(string(byte(0)))
 			if err != nil {
 				p.HandleIOError("reading byte 04 Error: ", err)
-				return
 			}
 			//log.Println("4: channel " + hex.EncodeToString([]byte{channel}) + ": " + hex.EncodeToString(data))
 		case byte(0x05):
@@ -432,7 +440,6 @@ func (p *pmodem) mainloop() {
 			_, err = p.readuntil(string(byte(0)))
 			if err != nil {
 				p.HandleIOError("reading byte 05 Error: ", err)
-				return
 			}
 			//log.Println("5: channel " + hex.EncodeToString([]byte{channel}) + ": " + hex.EncodeToString(data))
 		case byte(0x06):
@@ -442,7 +449,6 @@ func (p *pmodem) mainloop() {
 			_, err = p.readbyte(int(length[0]) + 1)
 			if err != nil {
 				p.HandleIOError("reading byte 06 Error: ", err)
-				return
 			}
 
 			//			data, _ := p.readbyte(int(len[0]) + 1)
@@ -454,12 +460,10 @@ func (p *pmodem) mainloop() {
 			length, err := p.readbyte(1)
 			if err != nil {
 				p.HandleIOError("reading payload length (byte 07)", err)
-				return
 			}
 			data, err := p.readbyte(int(length[0]) + 1)
 			if err != nil {
 				p.HandleIOError("reading payload (byte 07)", err)
-				return
 			}
 			p.rxbuffer <- data
 			//log.Println("7: channel " + hex.EncodeToString([]byte{channel}) + ": " + hex.EncodeToString(data))
@@ -468,25 +472,21 @@ func (p *pmodem) mainloop() {
 
 		if err != nil {
 			p.HandleIOError("reading reply to G-command", err)
-			return
 		}
 
 		//check if we are still connected
 		err = p.rawwrite(pactorch, 1, "L")
 		if err != nil {
 			p.HandleIOError("writing the L-command", err)
-			return
 		}
 		_, err = p.readbyte(2)
 		if err != nil {
 			p.HandleIOError("reading reply to the L-command", err)
-			return
 		}
 		// b should be 04 01
 		l, err := p.readuntil(string(byte(0x00)))
 		if err != nil {
 			p.HandleIOError("reading data length after the L-command", err)
-			return
 		}
 		status := l[len(l)-1]
 		p.state = int(status) - 48 //ASCII "1" = 0x31 = 49
@@ -494,14 +494,21 @@ func (p *pmodem) mainloop() {
 		case "0":
 			// no connection
 			// can be during setup or wait. Idle...
+			if connected {
+				writeDebug("Connection lost, close connection.", 1)
+				connected = false
+				p.Close()
+			}
+		case "1":
+			//link setup - nothing to do at the moment
 		case "3":
 			// 3 = disconnect request
 			writeDebug("Connection ended or lost. Code: " + string(status), 1)
+			connected = false
 			p.Close()
-			//p.endwa8ded()
-			return
-		case "1":
-			//link setup - nothing to do at the moment
+		default:
+			// anything else than 0, 1, 3 is considered as connected
+			connected = true
 		}
 
 		if len(p.txbuffer) <= maxtxbuffer {
@@ -524,7 +531,6 @@ func (p *pmodem) mainloop() {
 			l, err := p.readuntil(string(byte(0x00)))
 			if err != nil {
 				p.HandleIOError("reading reply to the L-command while TX-ing", err)
-				return
 			}
 
 			status := l[len(l)-1]
@@ -534,8 +540,16 @@ func (p *pmodem) mainloop() {
 				//no connection
 				writeDebug("connection ended while data was still in the buffer", 1)
 				p.txbuffer = nil
-				//p.endwa8ded()
-				return
+				connected = false
+
+				select {
+				case p.rtd <- struct{}{}:
+					writeDebug("RTD signal set", 2)
+				default:
+					//
+				}
+
+				p.Close()
 			case "4":
 				trxdata := ""
 				if len(p.txbuffer) > 254 {
@@ -544,6 +558,13 @@ func (p *pmodem) mainloop() {
 				} else {
 					trxdata = string(p.txbuffer)
 					p.txbuffer = nil
+
+					select {
+					case p.rtd <- struct{}{}:
+						writeDebug("RTD signal set", 2)
+					default:
+						//
+					}
 				}
 				p.rawwrite(pactorch, 0, trxdata)
 				//time.Sleep(200 * time.Millisecond)
@@ -560,19 +581,18 @@ func (p *pmodem) mainloop() {
 				writeDebug("device busy (sending data)", 2)
 			}
 
-		}
-		if len(p.txbuffer) == 0 {
-			//we need to test that again as the buffer might be empty after tx has been done.
-
+		} else {
 			select {
 			case p.rtd <- struct{}{}:
-				//
+				writeDebug("RTD signal set", 2)
 			default:
 				//
 			}
 		}
 	}
-
+	// stop condition, return
+	writeDebug("Stopped main loop", 1)
+	return
 }
 
 func (p *pmodem) call() error {
