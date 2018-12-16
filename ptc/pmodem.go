@@ -385,6 +385,7 @@ func (p *pmodem) mainloop() {
 		//				for _, channel := range channels {
 
 		var err error
+		var data []byte
 
 		//handle commands
 		if len(p.cmdbuffer) != 0 {
@@ -404,57 +405,56 @@ func (p *pmodem) mainloop() {
 			p.HandleIOError("reading channel after G-command", err)
 		}
 
+		channel := b[0]
+
 		switch b[1] {
 		case byte(0x00):
 		//nothing to do
 		case byte(0x01):
 			//success to command, null terminated message
-			_, err = p.readuntil(string(byte(0)))
+			data, err = p.readuntil(string(byte(0)))
 			if err != nil {
 				p.HandleIOError("reading byte 01 Error: ", err)
 			}
-			//log.Println("1: channel " + hex.EncodeToString([]byte{channel}) + ": " + hex.EncodeToString(data))
+			writeDebug("1: channel " + hex.EncodeToString([]byte{channel}) + ": " + hex.EncodeToString(data), 3)
 		case byte(0x02):
 			//error to command, null terminated message
-			_, err = p.readuntil(string(byte(0)))
+			data, err = p.readuntil(string(byte(0)))
 			if err != nil {
 				p.HandleIOError("reading byte 02 Error: ", err)
 			}
-			//log.Println("2: channel " + hex.EncodeToString([]byte{channel}) + ": " + hex.EncodeToString(data))
+			writeDebug("2: channel " + hex.EncodeToString([]byte{channel}) + ": " + hex.EncodeToString(data), 3)
 		case byte(0x03):
 			// link status, null terminated message
-			_, err = p.readuntil(string(byte(0)))
+			data, err = p.readuntil(string(byte(0)))
 			if err != nil {
 				p.HandleIOError("reading byte 03 Error: ", err)
 			}
-			//log.Println("3: channel " + hex.EncodeToString([]byte{channel}) + ": " + hex.EncodeToString(data))
+			writeDebug("3: channel " + hex.EncodeToString([]byte{channel}) + ": " + hex.EncodeToString(data), 3)
 		case byte(0x04):
 			//monitor w/o data, null terminated message
-			_, err = p.readuntil(string(byte(0)))
+			data, err = p.readuntil(string(byte(0)))
 			if err != nil {
 				p.HandleIOError("reading byte 04 Error: ", err)
 			}
-			//log.Println("4: channel " + hex.EncodeToString([]byte{channel}) + ": " + hex.EncodeToString(data))
+			writeDebug("4: channel " + hex.EncodeToString([]byte{channel}) + ": " + hex.EncodeToString(data), 3)
 		case byte(0x05):
 			//monitor with data, null terminated message
-			_, err = p.readuntil(string(byte(0)))
+			data, err = p.readuntil(string(byte(0)))
 			if err != nil {
 				p.HandleIOError("reading byte 05 Error: ", err)
 			}
-			//log.Println("5: channel " + hex.EncodeToString([]byte{channel}) + ": " + hex.EncodeToString(data))
+			writeDebug("5: channel " + hex.EncodeToString([]byte{channel}) + ": " + hex.EncodeToString(data), 3)
 		case byte(0x06):
 			// Monitor data
 			length, _ := p.readbyte(1)
 			//lust discard monitor data for the time being
-			_, err = p.readbyte(int(length[0]) + 1)
+			data, err = p.readbyte(int(length[0]) + 1)
 			if err != nil {
 				p.HandleIOError("reading byte 06 Error: ", err)
 			}
 
-			//			data, _ := p.readbyte(int(len[0]) + 1)
-			//			p.rxbuffer = append(p.rxbuffer, data...)
-			//p.rxbuffer <- data
-			//log.Println("6: channel " + hex.EncodeToString([]byte{channel}) + ": \n" + string(data))
+			writeDebug("6: channel " + hex.EncodeToString([]byte{channel}) + ": \n" + string(data), 3)
 		case byte(0x07):
 			// payload
 			length, err := p.readbyte(1)
@@ -466,8 +466,7 @@ func (p *pmodem) mainloop() {
 				p.HandleIOError("reading payload (byte 07)", err)
 			}
 			p.rxbuffer <- data
-			//log.Println("7: channel " + hex.EncodeToString([]byte{channel}) + ": " + hex.EncodeToString(data))
-
+			writeDebug("7: channel " + hex.EncodeToString([]byte{channel}) + ": " + hex.EncodeToString(data), 3)
 		}
 
 		if err != nil {
@@ -527,14 +526,15 @@ func (p *pmodem) mainloop() {
 			//first check is modem is able to receive more data
 			p.rawwrite(pactorch, 1, "L")
 			_, err = p.readbyte(2)
-			// b should be 04 01
+
 			l, err := p.readuntil(string(byte(0x00)))
 			if err != nil {
 				p.HandleIOError("reading reply to the L-command while TX-ing", err)
 			}
 
 			status := l[len(l)-1]
-			//log.Println("Antwort auf  L: " + string(l) + "  status is: " + string(status))
+			writeDebug("Reply to L: " + string(l) + "  status is: " + string(status), 3)
+
 			switch string(status) {
 			case "0", "1", "3":
 				//no connection
