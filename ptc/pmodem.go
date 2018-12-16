@@ -627,6 +627,9 @@ func (p *pmodem) call() error {
 	return nil
 }
 func (p *pmodem) init() error {
+	if p.mainRunning {
+		return errors.New(fmt.Sprintf("Main loop already running, abort"))
+	}
 
 	//initalize the buffers
 	//p.rxbuffer = make([]byte, 0)
