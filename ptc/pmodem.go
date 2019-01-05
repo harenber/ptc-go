@@ -582,7 +582,7 @@ func (p *pmodem) mainloop() {
 			default:
 				// device is still busy (sending data), nothing we can about it here,
 				// so just wait and poll again...
-				writeDebug("device busy (sending data)", 2)
+				writeDebug("device busy (sending data)", 3)
 			}
 
 		} else {
