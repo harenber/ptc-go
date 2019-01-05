@@ -275,10 +275,6 @@ func (p *pmodem) writeexpect(command string, answer string) (b []byte, err error
 
 func (p *pmodem) startwa8ded() (err error) {
 	writeDebug("Entering WA8DED mode", 1)
-
-	// clear the command line, make the modem listen
-	p.device.Write([]byte("\r"))
-
 	_, err = p.writeexpect("JHOST1", "JHOST1")
 	if err != nil {
 		writeDebug("Couldn't go into WA8DED hostmode, no answer to the JHOST1 command", 1)
@@ -631,6 +627,8 @@ func (p *pmodem) call() error {
 	return nil
 }
 func (p *pmodem) init() error {
+        writeDebug("PTC driver init", 2)
+
 	if p.mainRunning {
 		return errors.New(fmt.Sprintf("Main loop already running, abort"))
 	}
@@ -653,6 +651,9 @@ func (p *pmodem) init() error {
 		writeDebug(err.Error(), 1)
 		return err
 	}
+
+        // clear the command line, make the modem listen
+        _, err = p.device.Write([]byte("\r\n"))
 
 	_, err = p.writeexpect("QUIT", "cmd: ")
 	if err != nil {
