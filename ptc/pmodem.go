@@ -275,6 +275,10 @@ func (p *pmodem) writeexpect(command string, answer string) (b []byte, err error
 
 func (p *pmodem) startwa8ded() (err error) {
 	writeDebug("Entering WA8DED mode", 1)
+
+	// clear the command line, make the modem listen
+	p.device.Write([]byte("\r"))
+
 	_, err = p.writeexpect("JHOST1", "JHOST1")
 	if err != nil {
 		writeDebug("Couldn't go into WA8DED hostmode, no answer to the JHOST1 command", 1)
