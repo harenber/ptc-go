@@ -578,7 +578,7 @@ func (p *pmodem) mainloop() {
 			default:
 				// device is still busy (sending data), nothing we can about it here,
 				// so just wait and poll again...
-				writeDebug("device busy (sending data)", 2)
+				writeDebug("device busy (sending data)", 3)
 			}
 
 		} else {
@@ -627,6 +627,8 @@ func (p *pmodem) call() error {
 	return nil
 }
 func (p *pmodem) init() error {
+        writeDebug("PTC driver init", 2)
+
 	if p.mainRunning {
 		return errors.New(fmt.Sprintf("Main loop already running, abort"))
 	}
@@ -649,6 +651,9 @@ func (p *pmodem) init() error {
 		writeDebug(err.Error(), 1)
 		return err
 	}
+
+        // clear the command line, make the modem listen
+        _, err = p.device.Write([]byte("\r\n"))
 
 	_, err = p.writeexpect("QUIT", "cmd: ")
 	if err != nil {
