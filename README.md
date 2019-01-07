@@ -18,7 +18,7 @@ The code in this repository is independently developed from Pat
 itself, although in close collaboration. Please do not bother Martin, LA5NTA, with 
 questions concerning this driver. Instead, look [further down](https://github.com/harenber/ptc-go/blob/master/README.md#seeking-help).
 
-Author: Torsten Harenberg, DL1THM
+Author: Torsten Harenberg, DL1THM (initial) with large contributions and bug fixes from @blockmurder
 
 ## How to use it
 
@@ -167,4 +167,4 @@ Otherwise, feel free to open issues to this repository if you find bugs not repo
 First I wish to thank Martin Hebnes Pedersen, LA5NTA, for developing
 Pat, his patience and for his helpful code reviews. Further thanks to my good friend
 Brett Ruiz, PJ2BR, for providing a second station for beta-testing. And thanks to @blockmurder for
-his patches.
+the testing and patches.
