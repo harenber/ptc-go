@@ -151,8 +151,6 @@ func (p *Modem) Close() error {
 			p.forceDisconnect()
 			return fmt.Errorf("Disconnect timed out")
 		}
-
-		runtime.SetFinalizer(p, nil)
 	}
 
 	writeDebug("Should never reach this...", 1)

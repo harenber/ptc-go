@@ -11,7 +11,6 @@ import (
 	"sync"
 	"errors"
 	"strings"
-//    "runtime"
 
 	"github.com/tarm/serial"
 )
@@ -109,8 +108,6 @@ func OpenModem(path string, baudRate int, myCall string, initScript string) (p *
 		sendBuf:         make(chan byte, MaxSendData),
 		sendBufLen:      0,
 	}
-
-	//runtime.SetFinalizer(p, (*Modem).Close)
 
 	writeDebug("Initialising pactor modem", 1)
 	if err := p.checkSerialDevice(); err != nil {
@@ -412,7 +409,6 @@ func (p *Modem) close() (err error) {
 
 	p.hostmodeQuit()
 	p.device.Close()
-
 
 	return nil
 }
