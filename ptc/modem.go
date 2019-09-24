@@ -11,7 +11,6 @@ import (
 	"sync"
 	"errors"
 	"strings"
-//    "runtime"
 
 	"github.com/tarm/serial"
 )
@@ -30,9 +29,9 @@ type cstate struct {
 }
 
 type pflags struct {
-	running         bool
 	exit            bool
 	closeCalled     bool
+	closed          bool
 	disconnected    chan struct{}
 	connected       chan struct{}
 	closeWriting    chan struct{}
@@ -98,7 +97,6 @@ func OpenModem(path string, baudRate int, myCall string, initScript string) (p *
 
 		device:          nil,
 		flags:           pflags {
-						   running: true,
 						   exit: false,
 						   closeCalled: false,
 						   disconnected: make(chan struct{}, 1),
@@ -111,16 +109,6 @@ func OpenModem(path string, baudRate int, myCall string, initScript string) (p *
 		sendBuf:         make(chan byte, MaxSendData),
 		sendBufLen:      0,
 	}
-
-	//runtime.SetFinalizer(p, (*Modem).Close)
-
-	// clear running flag when returning error (before controll loop is started)
-	defer func () {
-		if err != nil {
-			writeDebug("Initialisation failed...", 1)
-			p.flags.running = false
-		}
-	}()
 
 	writeDebug("Initialising pactor modem", 1)
 	if err := p.checkSerialDevice(); err != nil {
@@ -410,6 +398,11 @@ func (p *Modem) send(msg string) error {
 
 // Close current serial connection. Stop all threads and close all channels.
 func (p *Modem) close() (err error) {
+	if p.flags.closed {
+		return nil
+	}
+
+	p.flags.closed = true
 	p.flags.exit = true
 	close(p.flags.closeWriting)
 	close(p.flags.disconnected)
@@ -422,8 +415,6 @@ func (p *Modem) close() (err error) {
 
 	p.hostmodeQuit()
 	p.device.Close()
-
-	p.flags.running = false
 
 	return nil
 }
