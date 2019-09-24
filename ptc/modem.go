@@ -510,7 +510,7 @@ func (p *Modem) eventHandler(){
 		}
 		if p.stateOld == LinkSetup && p.state == Disconnected {
 			setFlag(p.flags.disconnected)
-			writeDebug("Link setup failde", 1)
+			writeDebug("Link setup failed", 1)
 		}
 		if p.stateOld == Connected && p.state == Disconnected ||
 		   p.stateOld == DisconnectReq && p.state == Disconnected {
