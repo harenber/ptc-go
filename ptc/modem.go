@@ -30,7 +30,6 @@ type cstate struct {
 }
 
 type pflags struct {
-	running         bool
 	exit            bool
 	closeCalled     bool
 	disconnected    chan struct{}
@@ -98,7 +97,6 @@ func OpenModem(path string, baudRate int, myCall string, initScript string) (p *
 
 		device:          nil,
 		flags:           pflags {
-						   running: true,
 						   exit: false,
 						   closeCalled: false,
 						   disconnected: make(chan struct{}, 1),
@@ -113,14 +111,6 @@ func OpenModem(path string, baudRate int, myCall string, initScript string) (p *
 	}
 
 	//runtime.SetFinalizer(p, (*Modem).Close)
-
-	// clear running flag when returning error (before controll loop is started)
-	defer func () {
-		if err != nil {
-			writeDebug("Initialisation failed...", 1)
-			p.flags.running = false
-		}
-	}()
 
 	writeDebug("Initialising pactor modem", 1)
 	if err := p.checkSerialDevice(); err != nil {
@@ -423,7 +413,6 @@ func (p *Modem) close() (err error) {
 	p.hostmodeQuit()
 	p.device.Close()
 
-	p.flags.running = false
 
 	return nil
 }
