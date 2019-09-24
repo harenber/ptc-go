@@ -116,22 +116,31 @@ func (p *Modem) Close() error {
 	}
 
 	if p.flags.closeCalled != true {
-		defer p.close()
 		defer p.mux.close.Unlock()
 
 		p.flags.closeCalled = true
 
-		// Wait for remaining data to be transmitted and acknowledged
-		if err := p.waitTransmissionFinish(90 * time.Second); err != nil {
-			writeDebug(err.Error(), 2)
+		if p.state == Connected  {
+			// Connected to remote, try to send remaining frames and disconnect
+			// gracefully
+			defer p.close()
+
+			// Wait for remaining data to be transmitted and acknowledged
+			if err := p.waitTransmissionFinish(90 * time.Second); err != nil {
+				writeDebug(err.Error(), 2)
+			}
+
+			p.disconnect()
+
+			// Wait for disconnect command to be transmitted and acknowledged
+			if err := p.waitTransmissionFinish(30 * time.Second); err != nil {
+				writeDebug(err.Error(), 2)
+			}
+		} else {
+			// Link Setup (connection) not yet successful, force disconnect
+			p.forceDisconnect()
 		}
 
-		p.disconnect()
-
-		// Wait for disconnect command to be transmitted and acknowledged
-		if err := p.waitTransmissionFinish(30 * time.Second); err != nil {
-			writeDebug(err.Error(), 2)
-		}
 
 		// Wait for the modem to change state from connected to disconnected
 		select {
