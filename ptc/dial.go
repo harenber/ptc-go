@@ -121,16 +121,19 @@ func (p *Modem) Close() error {
 
 		p.flags.closeCalled = true
 
+		// Wait for remaining data to be transmitted and acknowledged
 		if err := p.waitTransmissionFinish(90 * time.Second); err != nil {
 			writeDebug(err.Error(), 2)
 		}
 
 		p.disconnect()
 
+		// Wait for disconnect command to be transmitted and acknowledged
 		if err := p.waitTransmissionFinish(30 * time.Second); err != nil {
 			writeDebug(err.Error(), 2)
 		}
 
+		// Wait for the modem to change state from connected to disconnected
 		select {
 		case <-p.flags.disconnected:
 			writeDebug("Disconnect successful", 1)

@@ -193,6 +193,9 @@ func (p *Modem) call(targetCall string) (err error){
 	return nil
 }
 
+// Send additional initialisation command stored in the InitScript
+//
+// Each command has to be on a new line
 func (p *Modem) runInitScript(initScript string) error {
 	if _, err := os.Stat(initScript); os.IsNotExist(err) {
 		return fmt.Errorf("ERROR: PTC init script defined but not existent: %s", initScript)
@@ -585,6 +588,8 @@ func (p *Modem) getChannelsWithOutput() (channels []int, err error) {
 }
 
 // Query channel status ("L" command) of stated channel
+//
+// Returns struct of type cstate.
 func (p *Modem) getChannelsStatus(ch int) (channelState cstate, err error) {
 	if ch == 0 {
 		return cstate{}, fmt.Errorf("L-command for channel 0 not implemented")
@@ -646,6 +651,11 @@ func (p *Modem) checkResponse(resp string, ch int) (n int, data []byte, err erro
 	return length, payload, nil
 }
 
+// Write and read response from pactor modem
+//
+// Can be used in both, normal and hostmode. If used in hostmode, provide
+// channel (>=0). If used in normal mode, set channel to -1, isCommand is
+// ignored.
 func (p *Modem) writeAndGetResponse(msg string, ch int, isCommand bool, chunkSize int) (int, string, error){
 	var err error
 

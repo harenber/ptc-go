@@ -7,16 +7,11 @@ import (
 	"sync"
 )
 
-// DefaultDevice: assume we have a USB PTC at the first USB device if the user
-//                hasn't told us anything else maybe we should have a cleverer
-//                guess here for non-Linux platforms.
-// DefaultBaud:
-// SerialTimeout:
-// PactorChannel:
-// MaxSendData:
-// MaxFrameNotTX:
+// SerialTimeout: Timeout for read operations on serial bus
+// PactorChannel: Pactor channel, 31 should work for both, PTC-IIex and P4 Dragon
+// MaxSendData:   Pactor internal command buffer is 256 byte
+// MaxFrameNotTX: Max. number of frames not transmitted at time. 
 const (
-	DefaultBaud	   = 57600
 	SerialTimeout  = 1
 	PactorChannel  = 31
 	MaxSendData    = 256
