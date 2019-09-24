@@ -31,6 +31,7 @@ type cstate struct {
 type pflags struct {
 	exit            bool
 	closeCalled     bool
+	closed          bool
 	disconnected    chan struct{}
 	connected       chan struct{}
 	closeWriting    chan struct{}
@@ -397,6 +398,11 @@ func (p *Modem) send(msg string) error {
 
 // Close current serial connection. Stop all threads and close all channels.
 func (p *Modem) close() (err error) {
+	if p.flags.closed {
+		return nil
+	}
+
+	p.flags.closed = true
 	p.flags.exit = true
 	close(p.flags.closeWriting)
 	close(p.flags.disconnected)

@@ -106,6 +106,10 @@ func (p *Modem) Flush() (err error) {
 // Will abort ("dirty disconnect") after 60 seconds if normal "disconnect" have
 // not succeeded yet.
 func (p *Modem) Close() error {
+	if p.flags.closed {
+		return nil
+	}
+
 	p.mux.close.Lock()
 
 	_, file, no, ok := runtime.Caller(1)
