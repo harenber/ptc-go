@@ -1,73 +1,56 @@
 package pactor
 
 import (
-	"errors"
-	"fmt"
-	"net"
 	"os"
 	"strconv"
-
-	"github.com/la5nta/wl2k-go/transport"
+	"log"
+	"sync"
 )
 
-func init() {
-	transport.RegisterDialer("pactor", &pmodem{})
+// DefaultDevice: assume we have a USB PTC at the first USB device if the user
+//                hasn't told us anything else maybe we should have a cleverer
+//                guess here for non-Linux platforms.
+// DefaultBaud:
+// SerialTimeout:
+// PactorChannel:
+// MaxSendData:
+// MaxFrameNotTX:
+const (
+    DefaultBaud	   = 57600
+	SerialTimeout  = 1
+	PactorChannel  = 31
+	MaxSendData    = 256
+	MaxFrameNotTX  = 2
+)
+
+// Pactor states
+const (
+	Unknown      State = iota
+	LinkSetup
+	Connected
+	DisconnectReq
+	Disconnected
+)
+
+type State uint8
+
+var debugMux sync.Mutex
+
+func debugEnabled() int {
+	if value, ok := os.LookupEnv("pactor_debug"); ok {
+		level, err := strconv.Atoi(value)
+		if err == nil {
+			return level
+		}
+	}
+	return 0
 }
 
-func (p *pmodem) DialURL(url *transport.URL) (net.Conn, error) {
-	// url.Host holds the (optional) local address of the TNC (e.g. /dev/ttyUSB0)
-	// url.Target holds the target node's callsign
-	// url.User.Username() holds the callers (this node's) callsign
-	// url.Params holds any additional parameters
-
-	if url.Scheme != "pactor" {
-		return nil, transport.ErrUnsupportedScheme
+func writeDebug(message string, level int) {
+	debugMux.Lock()
+	defer debugMux.Unlock()
+	if debugEnabled() >= level {
+		log.Println(message)
 	}
-
-	if str := url.Params.Get("host"); str != "" {
-		// make URL parameter "host" higher priority then url.Host in order to allow overwrite
-		p.deviceName = str
-	} else if str := url.Host; str != "" {
-		p.deviceName = str
-	} else {
-		// assume we have a USB PTC at the first USB device if the user hasn't told us anything else
-		// maybe we should have a cleverer guess here for non-Linux platforms.
-		p.deviceName = "/dev/ttyUSB0"
-	}
-
-	if str := url.Params.Get("init_script"); str != "" {
-		if _, err := os.Stat(str); os.IsNotExist(err) {
-			return nil, errors.New(fmt.Sprintf("ERROR: PTC init script defined but not existent: %s", str))
-		}
-		p.init_script = str
-	} else {
-		p.init_script = ""
-	}
-	if str := url.Params.Get("baud"); str != "" {
-		var err error
-		p.baudRate, err = strconv.Atoi(str)
-		if err != nil {
-			return nil, errors.New(fmt.Sprintf("ERROR: baud rate defined cannot be converted to an int: %s", str))
-		}
-	} else {
-		p.baudRate = 57600
-	}
-
-	if _, err := os.Stat(p.deviceName); os.IsNotExist(err) {
-		return nil, errors.New(fmt.Sprintf("ERROR: Device %s does not exist", p.deviceName))
-	}
-	p.mycall = url.User.Username()
-	p.remotecall = url.Target
-	err := p.init()
-	if err != nil {
-		return p, err
-	}
-	err = p.call()
-	return p, err
-
+	return
 }
-
-type Address struct{ Callsign string }
-
-func (a Address) Network() string { return "" }
-func (a Address) String() string  { return a.Callsign }
