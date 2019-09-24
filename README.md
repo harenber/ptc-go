@@ -15,7 +15,7 @@ be usable enough to send Winlink messages through a PACTOR (or PACKET)
 channel using a supported PACTOR modem, though.
 
 The code in this repository is independently developed from Pat
-itself, although in close collaboration. Please do not bother Martin, LA5NTA, with 
+itself, although in close collaboration. Please do not bother Martin, LA5NTA, with
 questions concerning this driver. Instead, look [further down](https://github.com/harenber/ptc-go/blob/master/README.md#seeking-help).
 
 Author: Torsten Harenberg, DL1THM (initial) with large contributions and bug fixes from @blockmurder. The code in the "develop" branch has been written by @blockmurder.
@@ -27,12 +27,12 @@ Author: Torsten Harenberg, DL1THM (initial) with large contributions and bug fix
 #### Compiling
 
 
-The PACTOR support is beta and ~~not~~ included in the standard distribution of [Pat](http://getpat.io) since v0.7.0. 
+The PACTOR support is beta and ~~not~~ included in the standard distribution of [Pat](http://getpat.io) since v0.7.0.
 To get the latest PACTOR updates you may want to build a version of Pat manually, however it is not difficult to do so. The Pat version with PACTOR support is available as a seperate branch in the source tree. This [build script](https://github.com/la5nta/pat/blob/master/make.bash) will pull all dependencies, including this driver. So you do not need to bother with this repository.
 
 Some very basic knowledge of using the [Go programming language](https://golang.org/) is helpful. But you do not need to write own code!
 
-If you haven't done yet, [download](https://golang.org/dl/) and [install](https://golang.org/doc/install) Go. Get familiar with [the workspace](https://golang.org/doc/code.html#Workspaces). 
+If you haven't done yet, [download](https://golang.org/dl/) and [install](https://golang.org/doc/install) Go. Get familiar with [the workspace](https://golang.org/doc/code.html#Workspaces).
 
 Now go to your GO src (default: $HOME/go/src) directory and issue
 
@@ -50,11 +50,12 @@ That will create the binary into the current directory, you may want to move it 
 Once you have successfully compiled Pat as described above, [configure it](https://github.com/la5nta/pat/wiki/The-command-line-interface#configure). Afterwards you should add an entry to your $HOME/.wl2k/config.json file like this:
 
 ```json
-  "pactor": {
-    "path": "/dev/ttyUSB0",
-    "rig": "",
-    "custom_init_script": "/home/pi/ptcinit.txt"
-  },
+"pactor": {
+  "path": "/dev/ttyUSB0",
+  "baudrate": 57600,
+  "rig": "",
+  "custom_init_script": "/home/pi/ptcinit.txt"
+},
 ```
 
 Path is the tty to your SCS modem. The example here is from Linux and I haven't tested this on any other platform yet.
@@ -76,7 +77,7 @@ config.json file
 pat connect pactor:///PJ2A
 ```
 
-To overwrite one or the other default in the config.json, you may use
+~~To overwrite one or the other default in the config.json, you may use the following additional parameters~~ deprecated
 
 ```
 pat connect "pactor:///PJ2A?host=/dev/ttyUSB0&baud=57600"
@@ -91,7 +92,7 @@ pi@pi2 ~/gopackages/src/github.com/la5nta/pat $ ./pat connect pactor:///PJ2A
 PJ2A - Linux RMS Gateway 2.4.0 Oct 24 2017 (FK52nd)
 
 Welcome to the PJ2A Winlink 2000 RMS Gateway. VERONA Radio Club, Curacao, Dutch Caribbean
- 
+
 INFO: Host Name sandiego.winlink.org, Port 8772
 Connected
 [WL2K-5.0-B2FWIHJM$]
@@ -122,7 +123,7 @@ add a
 PTCH 1
 ```
 
-to the script which is called by `custom_init_script`. 
+to the script which is called by `custom_init_script`.
 
 ## Supported hardware
 
@@ -130,16 +131,16 @@ The code has tested against the PTC-II and -III series of the SCS PTC
 modems. It should work with USB, serial and Bluetooth connections. The
 P4 Dragon seems to use a non-standard baudrate on the serial line,
 which is not supported by the underlying Go package. And I do not own one of these modems. So for the time
-being, these new modems are unfortunately **not** supported, 
+being, these new modems are unfortunately **not** supported,
 although there has been some [effort](https://github.com/harenber/ptc-go/tree/feature/p4-dragon) from Martin, LA4NTA, to get those modems running as well. If you
-think you can contribute, please feel free to comment on [issue #3](https://github.com/harenber/ptc-go/issues/3). 
+think you can contribute, please feel free to comment on [issue #3](https://github.com/harenber/ptc-go/issues/3).
 
 ## What is missing
 
 There are a lot of features that would be nice to have and which are
 still under development. Most notably these are:
 
-* listen mode. At the moment, the driver can only call remote station but cannot accept connections. 
+* listen mode. At the moment, the driver can only call remote station but cannot accept connections.
 * P4 Dragon support. (see [this issue](https://github.com/harenber/ptc-go/issues/3) for details). As I don't own such a device, feedback is more than welcome.
 
 If you feel you are able to contribute, you are more than
@@ -149,16 +150,15 @@ Furthermore, tests on non-Linux systems would be appreciated.
 
 ## Debugging
 
-Setting an environment variable `pactor_debug` will enable some more
-debug messages. This feature will become more verbose in the future
-and will probably include the data transferred from and to the PACTOR modem.
+Setting an environment variable `pactor_debug=1` will enable some more
+debug messages. You can set the verbosity level from 1 (little debug output) to 3 (a LOT of debug output).
 
 ## Seeking help
 
 The best place to ask for help is the
-[Pat Google Group](https://groups.google.com/forum/#!forum/pat-users). 
+[Pat Google Group](https://groups.google.com/forum/#!forum/pat-users).
 
-That is true even if you have questions concerning this driver, I (DL1THM) monitor the Pat Google Group as well and will answer there. 
+That is true even if you have questions concerning this driver, I (DL1THM) monitor the Pat Google Group as well and will answer there.
 
 Otherwise, feel free to open issues to this repository if you find bugs not reported yet.
 
