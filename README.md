@@ -50,11 +50,12 @@ That will create the binary into the current directory, you may want to move it 
 Once you have successfully compiled Pat as described above, [configure it](https://github.com/la5nta/pat/wiki/The-command-line-interface#configure). Afterwards you should add an entry to your $HOME/.wl2k/config.json file like this:
 
 ```json
-  "pactor": {
-    "path": "/dev/ttyUSB0",
-    "rig": "",
-    "custom_init_script": "/home/pi/ptcinit.txt"
-  },
+"pactor": {
+  "path": "/dev/ttyUSB0",
+  "baudrate": 57600,
+  "rig": "",
+  "custom_init_script": "/home/pi/ptcinit.txt"
+},
 ```
 
 Path is the tty to your SCS modem. The example here is from Linux and I haven't tested this on any other platform yet.
@@ -76,7 +77,7 @@ config.json file
 pat connect pactor:///PJ2A
 ```
 
-To overwrite one or the other default in the config.json, you may use
+~~To overwrite one or the other default in the config.json, you may use the following additional parameters~~ deprecated
 
 ```
 pat connect "pactor:///PJ2A?host=/dev/ttyUSB0&baud=57600"
@@ -91,7 +92,7 @@ pi@pi2 ~/gopackages/src/github.com/la5nta/pat $ ./pat connect pactor:///PJ2A
 PJ2A - Linux RMS Gateway 2.4.0 Oct 24 2017 (FK52nd)
 
 Welcome to the PJ2A Winlink 2000 RMS Gateway. VERONA Radio Club, Curacao, Dutch Caribbean
- 
+
 INFO: Host Name sandiego.winlink.org, Port 8772
 Connected
 [WL2K-5.0-B2FWIHJM$]
@@ -149,9 +150,8 @@ Furthermore, tests on non-Linux systems would be appreciated.
 
 ## Debugging
 
-Setting an environment variable `pactor_debug` will enable some more
-debug messages. This feature will become more verbose in the future
-and will probably include the data transferred from and to the PACTOR modem.
+Setting an environment variable `pactor_debug=1` will enable some more
+debug messages. You can set the verbosity level from 1 (little debug output) to 3 (a LOT of debug output).
 
 ## Seeking help
 
