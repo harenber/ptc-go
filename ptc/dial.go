@@ -31,14 +31,14 @@ func (p *Modem) DialURL(url *transport.URL) (net.Conn, error) {
 //
 // BLOCK until receive buffer has any data!
 func (p *Modem) Read(d []byte) (int, error) {
-    p.mux.read.Lock()
-    defer p.mux.read.Unlock()
+	p.mux.read.Lock()
+	defer p.mux.read.Unlock()
 
-    if p.state != Connected  {
-        return 0, fmt.Errorf("Read from closed connection")
-    }
+	if p.state != Connected  {
+		return 0, fmt.Errorf("Read from closed connection")
+	}
 
-    if len(d) == 0 {
+	if len(d) == 0 {
 		return 0, nil
 	}
 
@@ -64,41 +64,41 @@ func (p *Modem) Read(d []byte) (int, error) {
 // BLOCK if send buffer is full! Remains as soon as there is space left in the
 // send buffer
 func (p *Modem) Write(d []byte) (int, error) {
-    p.mux.write.Lock()
+	p.mux.write.Lock()
 	defer p.mux.write.Unlock()
 
-    if p.state != Connected  {
-        return 0, fmt.Errorf("Read from closed connection")
-    }
+	if p.state != Connected  {
+		return 0, fmt.Errorf("Read from closed connection")
+	}
 
-    for _, b := range d {
-        select {
-        case <- p.flags.closeWriting:
-            return 0, fmt.Errorf("Writing on closed connection")
-        case p.sendBuf <- b:
-        }
+	for _, b := range d {
+		select {
+		case <- p.flags.closeWriting:
+			return 0, fmt.Errorf("Writing on closed connection")
+		case p.sendBuf <- b:
+		}
 
-        p.mux.bufLen.Lock()
-        p.sendBufLen++
-        p.mux.bufLen.Unlock()
-    }
+		p.mux.bufLen.Lock()
+		p.sendBufLen++
+		p.mux.bufLen.Unlock()
+	}
 
-    return len(d), nil
+	return len(d), nil
 }
 
 // Flush waits for the last frames to be transmitted.
 //
 // Will throw error if remaining frames could not bet sent within 120s
 func (p *Modem) Flush() (err error) {
-    if p.state != Connected  {
-        return fmt.Errorf("Flush a closed connection")
-    }
+	if p.state != Connected  {
+		return fmt.Errorf("Flush a closed connection")
+	}
 
-    writeDebug("Flush called", 2)
-    if err = p.waitTransmissionFinish(120 * time.Second); err != nil {
-        writeDebug(err.Error(), 2)
-    }
-    return
+	writeDebug("Flush called", 2)
+	if err = p.waitTransmissionFinish(120 * time.Second); err != nil {
+		writeDebug(err.Error(), 2)
+	}
+	return
 }
 
 // Close closes the current connection.
@@ -106,52 +106,52 @@ func (p *Modem) Flush() (err error) {
 // Will abort ("dirty disconnect") after 60 seconds if normal "disconnect" have
 // not succeeded yet.
 func (p *Modem) Close() error {
-    p.mux.close.Lock()
+	p.mux.close.Lock()
 
-    _, file, no, ok := runtime.Caller(1)
+	_, file, no, ok := runtime.Caller(1)
 	if ok {
 		writeDebug("Close called from " + file + "#" + strconv.Itoa(no), 2)
 	} else {
 		writeDebug("Close called", 2)
 	}
 
-    if p.flags.closeCalled != true {
-        defer p.close()
-        defer p.mux.close.Unlock()
+	if p.flags.closeCalled != true {
+		defer p.close()
+		defer p.mux.close.Unlock()
 
-        p.flags.closeCalled = true
+		p.flags.closeCalled = true
 
-        if err := p.waitTransmissionFinish(90 * time.Second); err != nil {
-            writeDebug(err.Error(), 2)
-        }
+		if err := p.waitTransmissionFinish(90 * time.Second); err != nil {
+			writeDebug(err.Error(), 2)
+		}
 
-        p.disconnect()
+		p.disconnect()
 
-        if err := p.waitTransmissionFinish(30 * time.Second); err != nil {
-            writeDebug(err.Error(), 2)
-        }
+		if err := p.waitTransmissionFinish(30 * time.Second); err != nil {
+			writeDebug(err.Error(), 2)
+		}
 
-        select {
-        case <-p.flags.disconnected:
-            writeDebug("Disconnect successful", 1)
-            return nil
-        case <-time.After(60 * time.Second):
-            p.forceDisconnect()
-            return fmt.Errorf("Disconnect timed out")
-        }
+		select {
+		case <-p.flags.disconnected:
+			writeDebug("Disconnect successful", 1)
+			return nil
+		case <-time.After(60 * time.Second):
+			p.forceDisconnect()
+			return fmt.Errorf("Disconnect timed out")
+		}
 
 		runtime.SetFinalizer(p, nil)
-    }
+	}
 
-    writeDebug("Should never reach this...", 1)
-    return nil
+	writeDebug("Should never reach this...", 1)
+	return nil
 }
 
 // TxBufferLen returns the number of bytes in the out buffer queue.
 //
 func (p *Modem) TxBufferLen() int {
-    p.mux.bufLen.Lock()
-    defer p.mux.bufLen.Unlock()
-    writeDebug("TxBufferLen called (" + strconv.Itoa(p.sendBufLen) + " bytes remaining in buffer)", 2)
-    return p.sendBufLen + (p.getNumFramesNotTransmitted() * MaxSendData)
+	p.mux.bufLen.Lock()
+	defer p.mux.bufLen.Unlock()
+	writeDebug("TxBufferLen called (" + strconv.Itoa(p.sendBufLen) + " bytes remaining in buffer)", 2)
+	return p.sendBufLen + (p.getNumFramesNotTransmitted() * MaxSendData)
 }

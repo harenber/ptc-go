@@ -1,7 +1,7 @@
 package pactor
 
 import (
-    "io"
+	"io"
 	"net"
 	"errors"
 )
@@ -35,5 +35,5 @@ func (l listener) Close() error {
 }
 
 func (p *Modem) Listen() (ln net.Listener, err error) {
-    return nil, errors.New("Pactor driver currently not supporting listening")
+	return nil, errors.New("Pactor driver currently not supporting listening")
 }

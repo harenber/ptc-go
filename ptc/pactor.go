@@ -16,7 +16,7 @@ import (
 // MaxSendData:
 // MaxFrameNotTX:
 const (
-    DefaultBaud	   = 57600
+	DefaultBaud	   = 57600
 	SerialTimeout  = 1
 	PactorChannel  = 31
 	MaxSendData    = 256
