@@ -130,6 +130,13 @@ func OpenModem(path string, baudRate int, myCall string, initScript string) (p *
 		return nil, err
 	}
 
+	// Make sure, modem is in main menu. Will respose with "ERROR:" when already in
+	// main menu!
+	_, _, err = p.writeAndGetResponse("Quit", -1, false, 1024)
+	if err != nil {
+		return nil, err
+	}
+
 	writeDebug("Running init commands", 1)
 	commands := []string{"MYcall " + p.localAddr, "PTCH " + strconv.Itoa(PactorChannel),
 		"MAXE 35", "CM 0", "REM 0", "BOX 0", "MAIL 0", "CHOB 0", "UML 1",
