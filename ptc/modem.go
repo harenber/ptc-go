@@ -143,9 +143,13 @@ func OpenModem(path string, baudRate int, myCall string, initScript string) (p *
 		"TONES 4", "MARK 1600", "SPACE 1400", "CWID 0", "CONType 3", "MODE 0"}
 
 	for _, cmd := range commands {
-		_, _, err = p.writeAndGetResponse(cmd, -1, false, 1024)
+		var res string
+		_, res, err = p.writeAndGetResponse(cmd, -1, false, 1024)
 		if err != nil {
 			return nil, err
+		}
+		if strings.Contains(res, "ERROR"){
+			return nil, fmt.Errorf(`Command "` + cmd + `" not accepted: ` + res)
 		}
 	}
 
