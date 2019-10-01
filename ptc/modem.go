@@ -598,6 +598,10 @@ func (p *Modem) getChannelsStatus(ch int) (channelState cstate, err error) {
 	}
 
 	_, stat, err := p.writeAndGetResponse("L", ch, true, 1024)
+	if err != nil {
+		return cstate{}, err
+	}
+
 	s := strings.Split(strings.Replace(stat[2:], "\x00", "", -1), " ")
 	if len(s) < 6 {
 		return cstate{}, fmt.Errorf("L-command response to short")
