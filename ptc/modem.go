@@ -130,15 +130,26 @@ func OpenModem(path string, baudRate int, myCall string, initScript string) (p *
 		return nil, err
 	}
 
+	// Make sure, modem is in main menu. Will respose with "ERROR:" when already in
+	// main menu!
+	_, _, err = p.writeAndGetResponse("Quit", -1, false, 1024)
+	if err != nil {
+		return nil, err
+	}
+
 	writeDebug("Running init commands", 1)
-	commands := []string{"MYcall " + p.localAddr, "PTCH " + strconv.Itoa(PactorChannel), "MAXE 35",
-		"LF 0", "CM 0", "REM 0", "BOX 0", "MAIL 0", "CHOB 0", "UML 1",
-		"TONES 4", "MARK 1600", "SPACE 1400", "CWID 0", "CONType 3"}
+	commands := []string{"MYcall " + p.localAddr, "PTCH " + strconv.Itoa(PactorChannel),
+		"MAXE 35", "CM 0", "REM 0", "BOX 0", "MAIL 0", "CHOB 0", "UML 1",
+		"TONES 4", "MARK 1600", "SPACE 1400", "CWID 0", "CONType 3", "MODE 0"}
 
 	for _, cmd := range commands {
-		_, _, err = p.writeAndGetResponse(cmd, -1, false, 1024)
+		var res string
+		_, res, err = p.writeAndGetResponse(cmd, -1, false, 1024)
 		if err != nil {
 			return nil, err
+		}
+		if strings.Contains(res, "ERROR"){
+			return nil, fmt.Errorf(`Command "` + cmd + `" not accepted: ` + res)
 		}
 	}
 
@@ -587,7 +598,11 @@ func (p *Modem) getChannelsStatus(ch int) (channelState cstate, err error) {
 	}
 
 	_, stat, err := p.writeAndGetResponse("L", ch, true, 1024)
-	s := strings.Split(strings.Replace(stat, "\x00", "", -1), " ")
+	if err != nil {
+		return cstate{}, err
+	}
+
+	s := strings.Split(strings.Replace(stat[2:], "\x00", "", -1), " ")
 	if len(s) < 6 {
 		return cstate{}, fmt.Errorf("L-command response to short")
 	}
