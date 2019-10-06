@@ -7,12 +7,12 @@ import (
 	"sync"
 )
 
-// SerialTimeout: Timeout for read operations on serial bus
+// SerialTimeout: Timeout (ms) for read operations on serial bus
 // PactorChannel: Pactor channel, 31 should work for both, PTC-IIex and P4 Dragon
 // MaxSendData:   Pactor internal command buffer is 256 byte
-// MaxFrameNotTX: Max. number of frames not transmitted at time. 
+// MaxFrameNotTX: Max. number of frames not transmitted at time.
 const (
-	SerialTimeout  = 1
+	SerialTimeout  = 1000
 	PactorChannel  = 31
 	MaxSendData    = 256
 	MaxFrameNotTX  = 2

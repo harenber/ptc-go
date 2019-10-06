@@ -1,0 +1,3 @@
+[submodule "ptc/vendor/github.com/jacobsa/go-serial"]
+	path = ptc/vendor/github.com/jacobsa/go-serial
+	url = https://github.com/jacobsa/go-serial.git

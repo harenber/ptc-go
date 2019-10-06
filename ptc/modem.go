@@ -11,8 +11,9 @@ import (
 	"sync"
 	"errors"
 	"strings"
+	"io"
 
-	"github.com/tarm/serial"
+	"github.com/jacobsa/go-serial/serial"
 )
 
 const network = "pactor"
@@ -55,7 +56,7 @@ type Modem struct {
 	state           State
 	stateOld        State
 
-	device          *serial.Port
+	device          io.ReadWriteCloser
 	mux             pmux
 	wg              sync.WaitGroup
 	flags           pflags
@@ -83,7 +84,7 @@ func (p *Modem) LocalAddr() net.Addr  { return Addr{p.localAddr} }
 //
 // Will abort if modem reports failed link setup, Close() is called or timeout
 // has occured (90 seconds)
-func OpenModem(path string, baudRate int, myCall string, initScript string) (p *Modem, err error) {
+func OpenModem(path string, baudRate uint, myCall string, initScript string) (p *Modem, err error) {
 
 	p = &Modem {
 		// Initialise variables
@@ -117,13 +118,23 @@ func OpenModem(path string, baudRate int, myCall string, initScript string) (p *
 	}
 
 	//Setup serial device
-	c := &serial.Config{Name: p.devicePath, Baud: baudRate, ReadTimeout: time.Second * SerialTimeout}
-	if p.device, err = serial.OpenPort(c); err != nil {
+	options := serial.OpenOptions{
+		PortName:               p.devicePath,
+		BaudRate:               baudRate,
+		DataBits:               8,
+		StopBits:               1,
+		ParityMode:             serial.PARITY_NONE,
+		RTSCTSFlowControl:      false,
+		MinimumReadSize:        0,
+		InterCharacterTimeout:  SerialTimeout,
+
+		Rs485Enable:            false,
+	}
+
+	if p.device, err = serial.Open(options); err != nil {
 		writeDebug(err.Error(), 1)
 		return nil, err
 	}
-
-	p.device.Flush()
 
 	p.hostmodeQuit() // throws error if not in hostmode (e.g. from previous connection)
 	if _, _, err = p.writeAndGetResponse("", -1, false, 10240); err != nil {
