@@ -6,35 +6,54 @@ import (
 	"strconv"
 	"io"
 	"time"
-	"runtime"
+	"sync"
 
 	"github.com/la5nta/wl2k-go/transport"
 )
 
+type cmux struct {
+	write  sync.Mutex
+	read   sync.Mutex
+	close  sync.Mutex
+}
+
+type Conn struct {
+	m   *Modem
+	mux cmux
+}
+
+func (c *Conn) RemoteAddr() net.Addr { return Addr{c.m.remoteAddr} }
+func (c *Conn) LocalAddr() net.Addr  { return Addr{c.m.localAddr} }
+
+func (c *Conn) SetDeadline(t time.Time) error      { return nil }
+func (c *Conn) SetReadDeadline(t time.Time) error  { return nil }
+func (c *Conn) SetWriteDeadline(t time.Time) error { return nil }
+
+
 // DialURL dials pactor:// URLs
 //
 // BLOCK until connection is established or timeoud occured
-func (p *Modem) DialURL(url *transport.URL) (net.Conn, error) {
+func (m *Modem) DialURL(url *transport.URL) (net.Conn, error) {
 	if url.Scheme != "pactor" {
 		return nil, transport.ErrUnsupportedScheme
 	}
 
-	if err := p.call(url.Target); err != nil {
+	if err := m.call(url.Target); err != nil {
 		return nil, err
 	}
 
-	return p, nil
+	return &Conn{ m, cmux{} }, nil
 }
 
 // Read bytes from the Software receive buffer. The receive thread takes care of
 // reading them from the pactor modem
 //
 // BLOCK until receive buffer has any data!
-func (p *Modem) Read(d []byte) (int, error) {
-	p.mux.read.Lock()
-	defer p.mux.read.Unlock()
+func (c *Conn) Read(d []byte) (int, error) {
+	c.mux.read.Lock()
+	defer c.mux.read.Unlock()
 
-	if p.state != Connected  {
+	if c.m.state != Connected  {
 		return 0, fmt.Errorf("Read from closed connection")
 	}
 
@@ -42,7 +61,7 @@ func (p *Modem) Read(d []byte) (int, error) {
 		return 0, nil
 	}
 
-	data, ok := <-p.recvBuf
+	data, ok := <-c.m.recvBuf
 	if !ok {
 		return 0, io.EOF
 	}
@@ -63,24 +82,24 @@ func (p *Modem) Read(d []byte) (int, error) {
 //
 // BLOCK if send buffer is full! Remains as soon as there is space left in the
 // send buffer
-func (p *Modem) Write(d []byte) (int, error) {
-	p.mux.write.Lock()
-	defer p.mux.write.Unlock()
+func (c *Conn) Write(d []byte) (int, error) {
+	c.mux.write.Lock()
+	defer c.mux.write.Unlock()
 
-	if p.state != Connected  {
+	if c.m.state != Connected  {
 		return 0, fmt.Errorf("Read from closed connection")
 	}
 
 	for _, b := range d {
 		select {
-		case <- p.flags.closeWriting:
+		case <- c.m.flags.closeWriting:
 			return 0, fmt.Errorf("Writing on closed connection")
-		case p.sendBuf <- b:
+		case c.m.sendBuf <- b:
 		}
 
-		p.mux.bufLen.Lock()
-		p.sendBufLen++
-		p.mux.bufLen.Unlock()
+		c.m.mux.bufLen.Lock()
+		c.m.sendBufLen++
+		c.m.mux.bufLen.Unlock()
 	}
 
 	return len(d), nil
@@ -89,13 +108,13 @@ func (p *Modem) Write(d []byte) (int, error) {
 // Flush waits for the last frames to be transmitted.
 //
 // Will throw error if remaining frames could not bet sent within 120s
-func (p *Modem) Flush() (err error) {
-	if p.state != Connected  {
+func (c *Conn) Flush() (err error) {
+	if c.m.state != Connected  {
 		return fmt.Errorf("Flush a closed connection")
 	}
 
 	writeDebug("Flush called", 2)
-	if err = p.waitTransmissionFinish(120 * time.Second); err != nil {
+	if err = c.m.waitTransmissionFinish(120 * time.Second); err != nil {
 		writeDebug(err.Error(), 2)
 	}
 	return
@@ -103,69 +122,24 @@ func (p *Modem) Flush() (err error) {
 
 // Close closes the current connection.
 //
-// Will abort ("dirty disconnect") after 60 seconds if normal "disconnect" have
+// Will abort ("dirty disconnect") after 60 seconds if normal "disconnect" has
 // not succeeded yet.
-func (p *Modem) Close() error {
-	if p.flags.closed {
+func (c *Conn) Close() error {
+	if c.m.flags.closed {
 		return nil
 	}
 
-	p.mux.close.Lock()
+	c.mux.close.Lock()
+	defer c.mux.close.Unlock()
 
-	_, file, no, ok := runtime.Caller(1)
-	if ok {
-		writeDebug("Close called from " + file + "#" + strconv.Itoa(no), 2)
-	} else {
-		writeDebug("Close called", 2)
-	}
-
-	if p.flags.closeCalled != true {
-		defer p.mux.close.Unlock()
-
-		p.flags.closeCalled = true
-
-		if p.state == Connected  {
-			// Connected to remote, try to send remaining frames and disconnect
-			// gracefully
-			defer p.close()
-
-			// Wait for remaining data to be transmitted and acknowledged
-			if err := p.waitTransmissionFinish(90 * time.Second); err != nil {
-				writeDebug(err.Error(), 2)
-			}
-
-			p.disconnect()
-
-			// Wait for disconnect command to be transmitted and acknowledged
-			if err := p.waitTransmissionFinish(30 * time.Second); err != nil {
-				writeDebug(err.Error(), 2)
-			}
-		} else {
-			// Link Setup (connection) not yet successful, force disconnect
-			p.forceDisconnect()
-		}
-
-
-		// Wait for the modem to change state from connected to disconnected
-		select {
-		case <-p.flags.disconnected:
-			writeDebug("Disconnect successful", 1)
-			return nil
-		case <-time.After(60 * time.Second):
-			p.forceDisconnect()
-			return fmt.Errorf("Disconnect timed out")
-		}
-	}
-
-	writeDebug("Should never reach this...", 1)
-	return nil
+	return c.m.Close()
 }
 
 // TxBufferLen returns the number of bytes in the out buffer queue.
 //
-func (p *Modem) TxBufferLen() int {
-	p.mux.bufLen.Lock()
-	defer p.mux.bufLen.Unlock()
-	writeDebug("TxBufferLen called (" + strconv.Itoa(p.sendBufLen) + " bytes remaining in buffer)", 2)
-	return p.sendBufLen + (p.getNumFramesNotTransmitted() * MaxSendData)
+func (c *Conn) TxBufferLen() int {
+	c.m.mux.bufLen.Lock()
+	defer c.m.mux.bufLen.Unlock()
+	writeDebug("TxBufferLen called (" + strconv.Itoa(c.m.sendBufLen) + " bytes remaining in buffer)", 2)
+	return c.m.sendBufLen + (c.m.getNumFramesNotTransmitted() * MaxSendData)
 }

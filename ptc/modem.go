@@ -2,7 +2,6 @@ package pactor
 
 import (
 	"time"
-	"net"
 	"os"
 	"bufio"
 	"fmt"
@@ -12,13 +11,10 @@ import (
 	"errors"
 	"strings"
 	"io"
+	"runtime"
 
 	"github.com/jacobsa/go-serial/serial"
 )
-
-const network = "pactor"
-
-type Addr struct { string }
 
 type cstate struct {
 	a   int
@@ -41,10 +37,8 @@ type pflags struct {
 type pmux struct {
 	device          sync.Mutex
 	pactor          sync.Mutex
-	write           sync.Mutex
-	read            sync.Mutex
-	close           sync.Mutex
 	bufLen          sync.Mutex
+	close           sync.Mutex
 }
 
 type Modem struct {
@@ -67,17 +61,6 @@ type Modem struct {
 	sendBuf         chan byte
 	sendBufLen      int
 }
-
-func (p *Modem) SetDeadline(t time.Time) error      { return nil }
-func (p *Modem) SetReadDeadline(t time.Time) error  { return nil }
-func (p *Modem) SetWriteDeadline(t time.Time) error { return nil }
-
-func (a Addr) Network() string { return network }
-func (a Addr) String() string { return a.string }
-
-func (p *Modem) RemoteAddr() net.Addr { return Addr{p.remoteAddr} }
-func (p *Modem) LocalAddr() net.Addr  { return Addr{p.localAddr} }
-
 
 // Initialise the pactor modem and all variables. Switch the modem into hostmode.
 // Start the link setup.
@@ -179,6 +162,62 @@ func OpenModem(path string, baudRate uint, myCall string, initScript string) (p 
 
 	return p, nil
 }
+
+// Close current connection
+//
+// Wait for all remaining frames to be sent before sending disconnect request.
+// Force disconnect if either connection has not been established yet or if
+// disconnect request timeout
+func (p *Modem) Close() error {
+	p.mux.close.Lock()
+	defer p.mux.close.Unlock()
+	_, file, no, ok := runtime.Caller(1)
+	if ok {
+		writeDebug("Close called from " + file + "#" + strconv.Itoa(no), 2)
+	} else {
+		writeDebug("Close called", 2)
+	}
+
+	if p.flags.closeCalled == true {
+		writeDebug("Disconnect already in progress", 1)
+		return nil
+	}
+
+	p.flags.closeCalled = true
+
+	if p.state == Connected || p.state == DisconnectReq {
+		// Connected to remote, try to send remaining frames and disconnect
+		// gracefully
+		defer p.close()
+
+		// Wait for remaining data to be transmitted and acknowledged
+		if err := p.waitTransmissionFinish(90 * time.Second); err != nil {
+			writeDebug(err.Error(), 2)
+		}
+
+		p.disconnect()
+
+		// Wait for disconnect command to be transmitted and acknowledged
+		if err := p.waitTransmissionFinish(30 * time.Second); err != nil {
+			writeDebug(err.Error(), 2)
+		}
+	} else {
+		// Link Setup (connection) not yet successful, force disconnect
+		p.forceDisconnect()
+	}
+
+
+	// Wait for the modem to change state from connected to disconnected
+	select {
+	case <-p.flags.disconnected:
+		writeDebug("Disconnect successful", 1)
+		return nil
+	case <-time.After(60 * time.Second):
+		p.forceDisconnect()
+		return fmt.Errorf("Disconnect timed out")
+	}
+}
+
 
 // Call a remote target
 //
