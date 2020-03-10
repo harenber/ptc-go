@@ -139,7 +139,7 @@ func OpenModem(path string, baudRate int, myCall string, initScript string) (p *
 
 	writeDebug("Running init commands", 1)
 	commands := []string{"MYcall " + p.localAddr, "PTCH " + strconv.Itoa(PactorChannel),
-		"MAXE 35", "CM 0", "REM 0", "BOX 0", "MAIL 0", "CHOB 0", "UML 1",
+		"MAXE 35", "REM 0", "CHOB 0",
 		"TONES 4", "MARK 1600", "SPACE 1400", "CWID 0", "CONType 3", "MODE 0"}
 
 	for _, cmd := range commands {
