@@ -24,26 +24,10 @@ Author: Torsten Harenberg, DL1THM (initial) with large contributions and bug fix
 
 ### setup
 
-#### Compiling
+#### How to get it
 
 
-The PACTOR support is beta and ~~not~~ included in the standard distribution of [Pat](http://getpat.io) since v0.7.0.
-To get the latest PACTOR updates you may want to build a version of Pat manually, however it is not difficult to do so. The Pat version with PACTOR support is available as a seperate branch in the source tree. This [build script](https://github.com/la5nta/pat/blob/master/make.bash) will pull all dependencies, including this driver. So you do not need to bother with this repository.
-
-Some very basic knowledge of using the [Go programming language](https://golang.org/) is helpful. But you do not need to write own code!
-
-If you haven't done yet, [download](https://golang.org/dl/) and [install](https://golang.org/doc/install) Go. Get familiar with [the workspace](https://golang.org/doc/code.html#Workspaces).
-
-Now go to your GO src (default: $HOME/go/src) directory and issue
-
-```
-git clone -b develop https://github.com/la5nta/pat github.com/la5nta/pat
-cd github.com/la5nta/pat
-./make.bash libax25
-./make.bash
-```
-
-That will create the binary into the current directory, you may want to move it to a directory in your PATH.
+The PACTOR support is beta and included in the standard distribution of [Pat](http://getpat.io) since v0.7.0.
 
 #### setup
 
@@ -147,6 +131,7 @@ which is not supported by the underlying Go package. And I do not own one of the
 being, these new modems are unfortunately **not** supported,
 although there has been some [effort](https://github.com/harenber/ptc-go/tree/feature/p4-dragon) from Martin, LA4NTA, to get those modems running as well. If you
 think you can contribute, please feel free to comment on [issue #3](https://github.com/harenber/ptc-go/issues/3).
+Swiss PTC modems should be supported as well, see [issue #26](https://github.com/harenber/ptc-go/issues/26)
 
 ## What is missing
 
