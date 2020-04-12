@@ -1,70 +1,70 @@
 package pactor
 
 import (
-	"time"
+	"bufio"
+	"encoding/hex"
+	"errors"
+	"fmt"
 	"net"
 	"os"
-	"bufio"
-	"fmt"
-	"encoding/hex"
 	"strconv"
-	"sync"
-	"errors"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/tarm/serial"
 )
 
 const network = "pactor"
 
-type Addr struct { string }
+type Addr struct{ string }
 
 type cstate struct {
-	a   int
-	b   int
-	c   int
-	d   int
-	e   int
-	f   int
+	a int
+	b int
+	c int
+	d int
+	e int
+	f int
 }
 
 type pflags struct {
-	exit            bool
-	closeCalled     bool
-	closed          bool
-	disconnected    chan struct{}
-	connected       chan struct{}
-	closeWriting    chan struct{}
+	exit         bool
+	closeCalled  bool
+	closed       bool
+	disconnected chan struct{}
+	connected    chan struct{}
+	closeWriting chan struct{}
 }
 
 type pmux struct {
-	device          sync.Mutex
-	pactor          sync.Mutex
-	write           sync.Mutex
-	read            sync.Mutex
-	close           sync.Mutex
-	bufLen          sync.Mutex
+	device sync.Mutex
+	pactor sync.Mutex
+	write  sync.Mutex
+	read   sync.Mutex
+	close  sync.Mutex
+	bufLen sync.Mutex
 }
 
 type Modem struct {
-	devicePath      string
+	devicePath string
 
-	localAddr       string
-	remoteAddr      string
+	localAddr  string
+	remoteAddr string
 
-	state           State
-	stateOld        State
+	state    State
+	stateOld State
 
-	device          *serial.Port
-	mux             pmux
-	wg              sync.WaitGroup
-	flags           pflags
-	channelState    cstate
-	goodChunks      int
-	recvBuf         chan []byte
-	cmdBuf          chan string
-	sendBuf         chan byte
-	sendBufLen      int
+	device       *serial.Port
+	mux          pmux
+	wg           sync.WaitGroup
+	flags        pflags
+	channelState cstate
+	goodChunks   int
+	recvBuf      chan []byte
+	cmdBuf       chan string
+	sendBuf      chan byte
+	sendBufLen   int
 }
 
 func (p *Modem) SetDeadline(t time.Time) error      { return nil }
@@ -72,42 +72,41 @@ func (p *Modem) SetReadDeadline(t time.Time) error  { return nil }
 func (p *Modem) SetWriteDeadline(t time.Time) error { return nil }
 
 func (a Addr) Network() string { return network }
-func (a Addr) String() string { return a.string }
+func (a Addr) String() string  { return a.string }
 
 func (p *Modem) RemoteAddr() net.Addr { return Addr{p.remoteAddr} }
 func (p *Modem) LocalAddr() net.Addr  { return Addr{p.localAddr} }
-
 
 // Initialise the pactor modem and all variables. Switch the modem into hostmode.
 // Start the link setup.
 //
 // Will abort if modem reports failed link setup, Close() is called or timeout
 // has occured (90 seconds)
-func OpenModem(path string, baudRate int, myCall string, initScript string) (p *Modem, err error) {
+func OpenModem(path string, baudRate int, myCall string, initScript string, cmdlineinit string) (p *Modem, err error) {
 
-	p = &Modem {
+	p = &Modem{
 		// Initialise variables
-		devicePath:      path,
+		devicePath: path,
 
-		localAddr:       myCall,
-		remoteAddr:      "",
+		localAddr:  myCall,
+		remoteAddr: "",
 
-		state:           Unknown,
-		stateOld:        Unknown,
+		state:    Unknown,
+		stateOld: Unknown,
 
-		device:          nil,
-		flags:           pflags {
-						   exit: false,
-						   closeCalled: false,
-						   disconnected: make(chan struct{}, 1),
-						   connected: make(chan struct{}, 1),
-						   closeWriting: make(chan struct{}), },
-		channelState:    cstate { a: 0, b: 0, c: 0, d:0, e:0, f:0, },
-		goodChunks:      0,
-		recvBuf:         make(chan []byte, 0),
-		cmdBuf:          make(chan string, 0),
-		sendBuf:         make(chan byte, MaxSendData),
-		sendBufLen:      0,
+		device: nil,
+		flags: pflags{
+			exit:         false,
+			closeCalled:  false,
+			disconnected: make(chan struct{}, 1),
+			connected:    make(chan struct{}, 1),
+			closeWriting: make(chan struct{})},
+		channelState: cstate{a: 0, b: 0, c: 0, d: 0, e: 0, f: 0},
+		goodChunks:   0,
+		recvBuf:      make(chan []byte, 0),
+		cmdBuf:       make(chan string, 0),
+		sendBuf:      make(chan byte, MaxSendData),
+		sendBufLen:   0,
 	}
 
 	writeDebug("Initialising pactor modem", 1)
@@ -142,13 +141,21 @@ func OpenModem(path string, baudRate int, myCall string, initScript string) (p *
 		"MAXE 35", "REM 0", "CHOB 0",
 		"TONES 4", "MARK 1600", "SPACE 1400", "CWID 0", "CONType 3", "MODE 0"}
 
+	//run additional commands provided on the command line with "init"
+
+	if cmdlineinit != "" {
+		for _, command := range strings.Split(strings.TrimSuffix(cmdlineinit, "\n"), "\n") {
+			commands = append(commands, command)
+		}
+	}
+
 	for _, cmd := range commands {
 		var res string
 		_, res, err = p.writeAndGetResponse(cmd, -1, false, 1024)
 		if err != nil {
 			return nil, err
 		}
-		if strings.Contains(res, "ERROR"){
+		if strings.Contains(res, "ERROR") {
 			return nil, fmt.Errorf(`Command "` + cmd + `" not accepted: ` + res)
 		}
 	}
@@ -172,7 +179,7 @@ func OpenModem(path string, baudRate int, myCall string, initScript string) (p *
 // Call a remote target
 //
 // BLOCKING until either connected, pactor states disconnect or timeout occures
-func (p *Modem) call(targetCall string) (err error){
+func (p *Modem) call(targetCall string) (err error) {
 	p.remoteAddr = targetCall
 	if err = p.connect(); err != nil {
 		return err
@@ -257,7 +264,7 @@ func (p *Modem) statusThread() {
 //
 // Pactor modem status must be "connected". New data is written to the recv_buffer
 // channel. BLOCKING until recvBuf has been read (e.g. by Read() function)
-func (p* Modem) receiveThread() {
+func (p *Modem) receiveThread() {
 	writeDebug("start receive thread", 2)
 
 	for {
@@ -276,7 +283,7 @@ func (p* Modem) receiveThread() {
 						_, data, _ := p.writeAndGetResponse("G", c, true, chunkSize)
 						if _, res, _ = p.checkResponse(data, c); res != nil {
 							p.recvBuf <- res
-							writeDebug("response: " + string(res), 3)
+							writeDebug("response: "+string(res), 3)
 						}
 						break
 					}
@@ -305,7 +312,7 @@ func (p *Modem) sendThread() {
 
 		select {
 		case cmd := <-p.cmdBuf:
-			writeDebug("Write (" + strconv.Itoa(len(cmd)) + "): " + cmd, 2)
+			writeDebug("Write ("+strconv.Itoa(len(cmd))+"): "+cmd, 2)
 			p.writeChannel(cmd, PactorChannel, true)
 		default:
 		}
@@ -313,7 +320,7 @@ func (p *Modem) sendThread() {
 		if p.getNumFramesNotTransmitted() < MaxFrameNotTX {
 			data := p.getSendData()
 			if len(data) > 0 {
-				writeDebug("Write (" + strconv.Itoa(len(data)) + "): " + hex.EncodeToString(data), 2)
+				writeDebug("Write ("+strconv.Itoa(len(data))+"): "+hex.EncodeToString(data), 2)
 				p.writeChannel(string(data), PactorChannel, false)
 			}
 		}
@@ -328,7 +335,7 @@ func (p *Modem) sendThread() {
 //
 // The amount of data bytes read from the sendBuf channel is limited by
 // MaxSendData as the modem only accepts MaxSendData of bytes each command
-func (p *Modem) getSendData() (data []byte){
+func (p *Modem) getSendData() (data []byte) {
 	count := 0
 	for {
 		if count < MaxSendData {
@@ -340,16 +347,15 @@ func (p *Modem) getSendData() (data []byte){
 				p.sendBufLen--
 				p.mux.bufLen.Unlock()
 			default:
-				writeDebug("No more data to send after " + strconv.Itoa(count) + " bytes", 3)
+				writeDebug("No more data to send after "+strconv.Itoa(count)+" bytes", 3)
 				return
 			}
 		} else {
-			writeDebug("Reached max send data size (" + strconv.Itoa(count) + " bytes)", 3)
+			writeDebug("Reached max send data size ("+strconv.Itoa(count)+" bytes)", 3)
 			return
 		}
 	}
 }
-
 
 // Wait for transmission to be finished
 //
@@ -433,7 +439,7 @@ func (p *Modem) close() (err error) {
 // Start modem hostemode (WA8DED)
 func (p *Modem) hostmodeStart() error {
 	writeDebug("start hostmode", 1)
-	_, _, err := p.writeAndGetResponse("JHOST1", -1, false, 1024);
+	_, _, err := p.writeAndGetResponse("JHOST1", -1, false, 1024)
 	_, _, err = p.read(1024)
 	return err
 }
@@ -504,7 +510,7 @@ func (p *Modem) updatePactorState() (err error) {
 //
 // Set/clear flags according to the event occured. Try to close connection
 // gracefully if connection is lost or disconnect request has been received
-func (p *Modem) eventHandler(){
+func (p *Modem) eventHandler() {
 	if p.state != p.stateOld {
 		if p.stateOld == LinkSetup && p.state == Connected {
 			setFlag(p.flags.connected)
@@ -515,7 +521,7 @@ func (p *Modem) eventHandler(){
 			writeDebug("Link setup failed", 1)
 		}
 		if p.stateOld == Connected && p.state == Disconnected ||
-		   p.stateOld == DisconnectReq && p.state == Disconnected {
+			p.stateOld == DisconnectReq && p.state == Disconnected {
 			if p.flags.closeCalled != true {
 				p.flags.closeCalled = true
 				writeDebug("Connection lost", 1)
@@ -534,7 +540,7 @@ func (p *Modem) eventHandler(){
 }
 
 // Set specified flag (channel)
-func setFlag(flag chan struct{}){
+func setFlag(flag chan struct{}) {
 	flag <- struct{}{}
 }
 
@@ -584,7 +590,7 @@ func (p *Modem) getChannelsWithOutput() (channels []int, err error) {
 		channels = append(channels, int(ch)-1)
 	}
 
-	writeDebug("Channels with output: " + fmt.Sprintf("%#v", channels), 3)
+	writeDebug("Channels with output: "+fmt.Sprintf("%#v", channels), 3)
 
 	return
 }
@@ -629,22 +635,22 @@ func (p *Modem) checkResponse(resp string, ch int) (n int, data []byte, err erro
 
 	head := []byte(resp[:3])
 	payload := []byte(resp[3:])
-	length := int(head[2])+1
+	length := int(head[2]) + 1
 	pl := len(payload)
 	if int(head[0]) != ch {
 		writeDebug("WARNING: Returned data does not match polled channel", 1)
 		return 0, nil, fmt.Errorf("Channel missmatch")
 	}
 	if int(head[1]) != 7 {
-		writeDebug("Not a data response: " + string(payload), 1)
+		writeDebug("Not a data response: "+string(payload), 1)
 		return 0, nil, fmt.Errorf("Not a data response")
 	}
 	if length != pl {
-		writeDebug("WARNING: Data length " + strconv.Itoa(pl) + " does not match stated amount " + strconv.Itoa(length) + ". After " + strconv.Itoa(p.goodChunks) + " good chunks.", 1)
+		writeDebug("WARNING: Data length "+strconv.Itoa(pl)+" does not match stated amount "+strconv.Itoa(length)+". After "+strconv.Itoa(p.goodChunks)+" good chunks.", 1)
 		p.goodChunks = 0
 		if pl < length {
 			// TODO: search for propper go function
-			for i := 0; i < (length-pl); i++ {
+			for i := 0; i < (length - pl); i++ {
 				payload = append(payload, 0x00)
 			}
 		} else {
@@ -662,7 +668,7 @@ func (p *Modem) checkResponse(resp string, ch int) (n int, data []byte, err erro
 // Can be used in both, normal and hostmode. If used in hostmode, provide
 // channel (>=0). If used in normal mode, set channel to -1, isCommand is
 // ignored.
-func (p *Modem) writeAndGetResponse(msg string, ch int, isCommand bool, chunkSize int) (int, string, error){
+func (p *Modem) writeAndGetResponse(msg string, ch int, isCommand bool, chunkSize int) (int, string, error) {
 	var err error
 
 	p.mux.pactor.Lock()
@@ -682,7 +688,7 @@ func (p *Modem) writeAndGetResponse(msg string, ch int, isCommand bool, chunkSiz
 	time.Sleep(100 * time.Millisecond)
 	n, str, err := p._read(chunkSize)
 
-	writeDebug("response: " + str, 3)
+	writeDebug("response: "+str, 3)
 
 	return n, str, err
 }
@@ -690,7 +696,7 @@ func (p *Modem) writeAndGetResponse(msg string, ch int, isCommand bool, chunkSiz
 // Write to serial connection (thread safe)
 //
 // No other read/write operation allowed during this time
-func (p *Modem) write(cmd string) (error) {
+func (p *Modem) write(cmd string) error {
 	p.mux.pactor.Lock()
 	defer p.mux.pactor.Unlock()
 	return p._write(cmd)
@@ -699,13 +705,13 @@ func (p *Modem) write(cmd string) (error) {
 // Write to serial connection (NOT thread safe)
 //
 // If used, make shure to lock/unlock p.mux.pactor mutex!
-func (p *Modem) _write(cmd string) (error) {
+func (p *Modem) _write(cmd string) error {
 	if err := p.checkSerialDevice(); err != nil {
 		writeDebug(err.Error(), 1)
 		return err
 	}
 
-	writeDebug("write: " + cmd, 2)
+	writeDebug("write: "+cmd, 2)
 
 	p.mux.device.Lock()
 	defer p.mux.device.Unlock()
@@ -720,7 +726,7 @@ func (p *Modem) _write(cmd string) (error) {
 // Write channel to serial connection (thread safe)
 //
 // No other read/write operation allowed during this time
-func (p *Modem) writeChannel(msg string, ch int, isCommand bool) (error) {
+func (p *Modem) writeChannel(msg string, ch int, isCommand bool) error {
 	p.mux.pactor.Lock()
 	defer p.mux.pactor.Unlock()
 	return p._writeChannel(msg, ch, isCommand)
@@ -729,7 +735,7 @@ func (p *Modem) writeChannel(msg string, ch int, isCommand bool) (error) {
 // Write channel to serial connection (NOT thread safe)
 //
 // If used, make shure to lock/unlock p.mux.pactor mutex!
-func (p *Modem) _writeChannel(msg string, ch int, isCommand bool) (error) {
+func (p *Modem) _writeChannel(msg string, ch int, isCommand bool) error {
 	if err := p.checkSerialDevice(); err != nil {
 		writeDebug(err.Error(), 1)
 		return err
@@ -743,11 +749,11 @@ func (p *Modem) _writeChannel(msg string, ch int, isCommand bool) (error) {
 	}
 
 	c := fmt.Sprintf("%02x", ch)
-	l := fmt.Sprintf("%02x", (len(msg)-1))
+	l := fmt.Sprintf("%02x", (len(msg) - 1))
 	s := hex.EncodeToString([]byte(msg))
 	bs, _ := hex.DecodeString(fmt.Sprintf("%s%s%s%s", c, d, l, s))
 
-	writeDebug("write channel: " + string(bs), 3)
+	writeDebug("write channel: "+string(bs), 3)
 
 	p.mux.device.Lock()
 	defer p.mux.device.Unlock()
@@ -782,7 +788,7 @@ func (p *Modem) _read(chunkSize int) (int, string, error) {
 	p.mux.device.Lock()
 	defer p.mux.device.Unlock()
 	n, err := p.device.Read(buf)
-	if  err != nil {
+	if err != nil {
 		writeDebug(err.Error(), 2)
 		return 0, "", err
 	}

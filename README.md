@@ -68,6 +68,7 @@ modem. Please check the modem's manual for details. You **do not**
 need to set basic parameters like your callsign with this
 feature. This is handled by the code.
 
+
 ### connect
 
 To connect to the remote station PJ2A using the defaults set in your
@@ -82,6 +83,18 @@ pat connect pactor:///PJ2A
 ```
 pat connect "pactor:///PJ2A?host=/dev/ttyUSB0&baud=57600"
 ```
+
+(new feature introduced in v2.1) In addition to __custom_init_script__, you can set
+additional commands to the PTC on the commandline with the init parameter. For example:
+
+```
+pat connect "pactor:///PJ2A?init=PTCH%2031"
+```
+
+To prevent the shell to interpret any character, I highly recommand you 
+put the URL into quotation marks. Remember: these commands are sent to your
+PTC. Depending on what they do, this changed the behaviour of your modem
+also in future connectios. Refer to the SCS handbook for details.
 
 A successful connect looks like this:
 

@@ -2,11 +2,11 @@ package pactor
 
 import (
 	"fmt"
-	"net"
-	"strconv"
 	"io"
-	"time"
+	"net"
 	"runtime"
+	"strconv"
+	"time"
 
 	"github.com/la5nta/wl2k-go/transport"
 )
@@ -34,7 +34,7 @@ func (p *Modem) Read(d []byte) (int, error) {
 	p.mux.read.Lock()
 	defer p.mux.read.Unlock()
 
-	if p.state != Connected  {
+	if p.state != Connected {
 		return 0, fmt.Errorf("Read from closed connection")
 	}
 
@@ -67,13 +67,13 @@ func (p *Modem) Write(d []byte) (int, error) {
 	p.mux.write.Lock()
 	defer p.mux.write.Unlock()
 
-	if p.state != Connected  {
+	if p.state != Connected {
 		return 0, fmt.Errorf("Read from closed connection")
 	}
 
 	for _, b := range d {
 		select {
-		case <- p.flags.closeWriting:
+		case <-p.flags.closeWriting:
 			return 0, fmt.Errorf("Writing on closed connection")
 		case p.sendBuf <- b:
 		}
@@ -90,7 +90,7 @@ func (p *Modem) Write(d []byte) (int, error) {
 //
 // Will throw error if remaining frames could not bet sent within 120s
 func (p *Modem) Flush() (err error) {
-	if p.state != Connected  {
+	if p.state != Connected {
 		return fmt.Errorf("Flush a closed connection")
 	}
 
@@ -114,7 +114,7 @@ func (p *Modem) Close() error {
 
 	_, file, no, ok := runtime.Caller(1)
 	if ok {
-		writeDebug("Close called from " + file + "#" + strconv.Itoa(no), 2)
+		writeDebug("Close called from "+file+"#"+strconv.Itoa(no), 2)
 	} else {
 		writeDebug("Close called", 2)
 	}
@@ -124,7 +124,7 @@ func (p *Modem) Close() error {
 
 		p.flags.closeCalled = true
 
-		if p.state == Connected  {
+		if p.state == Connected {
 			// Connected to remote, try to send remaining frames and disconnect
 			// gracefully
 			defer p.close()
@@ -144,7 +144,6 @@ func (p *Modem) Close() error {
 			// Link Setup (connection) not yet successful, force disconnect
 			p.forceDisconnect()
 		}
-
 
 		// Wait for the modem to change state from connected to disconnected
 		select {
@@ -166,6 +165,6 @@ func (p *Modem) Close() error {
 func (p *Modem) TxBufferLen() int {
 	p.mux.bufLen.Lock()
 	defer p.mux.bufLen.Unlock()
-	writeDebug("TxBufferLen called (" + strconv.Itoa(p.sendBufLen) + " bytes remaining in buffer)", 2)
+	writeDebug("TxBufferLen called ("+strconv.Itoa(p.sendBufLen)+" bytes remaining in buffer)", 2)
 	return p.sendBufLen + (p.getNumFramesNotTransmitted() * MaxSendData)
 }
