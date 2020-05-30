@@ -811,7 +811,7 @@ func unstuff(s string) string {
 	//Expect: the string contains aa aa at the beginning, that should NOT be
 	//stuffed
 	n, _ := hex.DecodeString(s[4:])
-	n = bytes.ReplaceAll(n, []byte{170, 0}, []byte{170})
+	n = bytes.Replace(n, []byte{170, 0}, []byte{170}, -1)
 	var r []byte
 	r = append([]byte{0xaa, 0xaa}, n...)
 	re := hex.EncodeToString(r)
@@ -827,7 +827,7 @@ func stuff(s string) string {
 		writeDebug("ERROR in Stuff: "+err.Error(), 1)
 	}
 
-	n = bytes.ReplaceAll(n, []byte{170}, []byte{170, 0})
+	n = bytes.Replace(n, []byte{170}, []byte{170, 0}, -1)
 	var r []byte
 	r = append([]byte{0xaa, 0xaa}, n...)
 	re := hex.EncodeToString(r)

@@ -7,6 +7,7 @@ github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/howeyc/crc16 v0.0.0-20171223171357-2b2a61e366a6 h1:IIVxLyDUYErC950b8kecjoqDet8P5S4lcVRUOM6rdkU=
 github.com/howeyc/crc16 v0.0.0-20171223171357-2b2a61e366a6/go.mod h1:JslaLRrzGsOKJgFEPBP65Whn+rdwDQSk0I0MCRFe2Zw=
+github.com/la5nta/pat v0.9.0 h1:v4jM4W17hB+86jOIYwkuX1iQaComkPhJBYstEyqJ54c=
 github.com/la5nta/wl2k-go v0.7.2 h1:TKAtVA4eXuQXcHmmTNnm+VlcajlMuXahcYSIb5Ic6vg=
 github.com/la5nta/wl2k-go v0.7.2/go.mod h1:rTQaxPiAFD3pWGWN8Lh+BskN3Fpii84GoVwpTHNiCjE=
 github.com/paulrosania/go-charset v0.0.0-20151028000031-621bb39fcc83/go.mod h1:YnNlZP7l4MhyGQ4CBRwv6ohZTPrUJJZtEv4ZgADkbs4=
