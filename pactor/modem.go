@@ -15,8 +15,6 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/sys/unix"
-
 	"github.com/albenik/go-serial/v2"
 	"github.com/howeyc/crc16"
 )
@@ -781,15 +779,9 @@ func (p *Modem) _write(cmd string) error {
 
 	p.mux.device.Lock()
 	defer p.mux.device.Unlock()
-	for {
-		_, err := p.device.Write([]byte(cmd + "\r"))
-		if err == nil {
-			break
-		}
-		if err != unix.EINTR {
-			return err
-		}
-		fmt.Println("Interrupted system call receveived during write")
+	if _, err := p.device.Write([]byte(cmd + "\r")); err != nil {
+		writeDebug(err.Error(), 2)
+		return err
 	}
 	time.Sleep(5 * time.Millisecond)
 	return nil
@@ -930,18 +922,10 @@ func (p *Modem) _read(chunkSize int) (int, string, error) {
 
 	p.mux.device.Lock()
 	defer p.mux.device.Unlock()
-	var n int
-	var err error
-	for {
-		n, err = p.device.Read(buf)
-		if err == nil {
-			break
-		}
-		if err != unix.EINTR {
-			writeDebug("Error received during read: "+err.Error(), 1)
-			return 0, "", err
-		}
-		writeDebug("Interrupted System Call reveived during read. Read bytes: "+strconv.Itoa(n), 2)
+	n, err := p.device.Read(buf)
+	if err != nil {
+		writeDebug("Error received during read: "+err.Error(), 1)
+		return 0, "", err
 	}
 
 	return n, string(buf[0:n]), nil
