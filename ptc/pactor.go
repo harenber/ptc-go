@@ -1,26 +1,26 @@
 package pactor
 
 import (
+	"log"
 	"os"
 	"strconv"
-	"log"
 	"sync"
 )
 
 // SerialTimeout: Timeout for read operations on serial bus
 // PactorChannel: Pactor channel, 31 should work for both, PTC-IIex and P4 Dragon
 // MaxSendData:   Pactor internal command buffer is 256 byte
-// MaxFrameNotTX: Max. number of frames not transmitted at time. 
+// MaxFrameNotTX: Max. number of frames not transmitted at time.
 const (
-	SerialTimeout  = 1
-	PactorChannel  = 31
-	MaxSendData    = 256
-	MaxFrameNotTX  = 2
+	SerialTimeout = 1
+	PactorChannel = 31
+	MaxSendData   = 256
+	MaxFrameNotTX = 2
 )
 
 // Pactor states
 const (
-	Unknown      State = iota
+	Unknown State = iota
 	LinkSetup
 	Connected
 	DisconnectReq
@@ -39,6 +39,7 @@ func debugEnabled() int {
 		}
 	}
 	return 0
+
 }
 
 func writeDebug(message string, level int) {

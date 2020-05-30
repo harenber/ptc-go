@@ -2,9 +2,12 @@ package pactor
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math/bits"
 	"net"
 	"os"
 	"strconv"
@@ -12,7 +15,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tarm/serial"
+	"golang.org/x/sys/unix"
+
+	"github.com/albenik/go-serial/v2"
+	"github.com/howeyc/crc16"
 )
 
 const network = "pactor"
@@ -55,16 +61,17 @@ type Modem struct {
 	state    State
 	stateOld State
 
-	device       *serial.Port
-	mux          pmux
-	wg           sync.WaitGroup
-	flags        pflags
-	channelState cstate
-	goodChunks   int
-	recvBuf      chan []byte
-	cmdBuf       chan string
-	sendBuf      chan byte
-	sendBufLen   int
+	device        *serial.Port
+	mux           pmux
+	wg            sync.WaitGroup
+	flags         pflags
+	channelState  cstate
+	goodChunks    int
+	recvBuf       chan []byte
+	cmdBuf        chan string
+	sendBuf       chan byte
+	sendBufLen    int
+	packetcounter bool
 }
 
 func (p *Modem) SetDeadline(t time.Time) error      { return nil }
@@ -116,13 +123,10 @@ func OpenModem(path string, baudRate int, myCall string, initScript string, cmdl
 	}
 
 	//Setup serial device
-	c := &serial.Config{Name: p.devicePath, Baud: baudRate, ReadTimeout: time.Second * SerialTimeout}
-	if p.device, err = serial.OpenPort(c); err != nil {
+	if p.device, err = serial.Open(p.devicePath, serial.WithBaudrate(baudRate), serial.WithReadTimeout(SerialTimeout)); err != nil {
 		writeDebug(err.Error(), 1)
 		return nil, err
 	}
-
-	p.device.Flush()
 
 	p.hostmodeQuit() // throws error if not in hostmode (e.g. from previous connection)
 	if _, _, err = p.writeAndGetResponse("", -1, false, 10240); err != nil {
@@ -142,7 +146,6 @@ func OpenModem(path string, baudRate int, myCall string, initScript string, cmdl
 		"TONES 4", "MARK 1600", "SPACE 1400", "CWID 0", "CONType 3", "MODE 0"}
 
 	//run additional commands provided on the command line with "init"
-
 	if cmdlineinit != "" {
 		for _, command := range strings.Split(strings.TrimSuffix(cmdlineinit, "\n"), "\n") {
 			commands = append(commands, command)
@@ -283,7 +286,7 @@ func (p *Modem) receiveThread() {
 						_, data, _ := p.writeAndGetResponse("G", c, true, chunkSize)
 						if _, res, _ = p.checkResponse(data, c); res != nil {
 							p.recvBuf <- res
-							writeDebug("response: "+string(res), 3)
+							writeDebug("response: "+string(res)+"\n"+hex.Dump(res), 3)
 						}
 						break
 					}
@@ -436,16 +439,18 @@ func (p *Modem) close() (err error) {
 	return nil
 }
 
-// Start modem hostemode (WA8DED)
+// Start modem hostemode (CRC Hostmode)
 func (p *Modem) hostmodeStart() error {
 	writeDebug("start hostmode", 1)
-	_, _, err := p.writeAndGetResponse("JHOST1", -1, false, 1024)
+	_, _, err := p.writeAndGetResponse("JHOST4", -1, false, 1024)
 	_, _, err = p.read(1024)
 	return err
 }
 
 // Quit modem hostmode
 func (p *Modem) hostmodeQuit() error {
+	//wait a bit for other commands to finish
+	time.Sleep(100 * time.Microsecond)
 	_, _, err := p.writeAndGetResponse("JHOST0", 0, true, 1024)
 	_, _, err = p.writeAndGetResponse("", -1, false, 1024)
 	return err
@@ -512,7 +517,7 @@ func (p *Modem) updatePactorState() (err error) {
 // gracefully if connection is lost or disconnect request has been received
 func (p *Modem) eventHandler() {
 	if p.state != p.stateOld {
-		if p.stateOld == LinkSetup && p.state == Connected {
+		if p.state == Connected {
 			setFlag(p.flags.connected)
 			writeDebug("Connection established", 1)
 		}
@@ -607,7 +612,10 @@ func (p *Modem) getChannelsStatus(ch int) (channelState cstate, err error) {
 	if err != nil {
 		return cstate{}, err
 	}
-
+	if len(stat) < 3 {
+		return cstate{}, fmt.Errorf("No answer to the L-command")
+	}
+	writeDebug("Status string:\n"+hex.Dump([]byte(stat)), 3)
 	s := strings.Split(strings.Replace(stat[2:], "\x00", "", -1), " ")
 	if len(s) < 6 {
 		return cstate{}, fmt.Errorf("L-command response to short")
@@ -620,7 +628,7 @@ func (p *Modem) getChannelsStatus(ch int) (channelState cstate, err error) {
 	channelState.e, _ = strconv.Atoi(s[4])
 	channelState.f, _ = strconv.Atoi(s[5])
 
-	writeDebug(fmt.Sprintf("%+v", channelState), 2)
+	writeDebug(fmt.Sprintf("ChannelState: %+v", channelState), 2)
 
 	return channelState, nil
 }
@@ -638,7 +646,7 @@ func (p *Modem) checkResponse(resp string, ch int) (n int, data []byte, err erro
 	length := int(head[2]) + 1
 	pl := len(payload)
 	if int(head[0]) != ch {
-		writeDebug("WARNING: Returned data does not match polled channel", 1)
+		writeDebug("WARNING: Returned data does not match polled channel\n"+hex.Dump([]byte(resp)), 1)
 		return 0, nil, fmt.Errorf("Channel missmatch")
 	}
 	if int(head[1]) != 7 {
@@ -685,11 +693,69 @@ func (p *Modem) writeAndGetResponse(msg string, ch int, isCommand bool, chunkSiz
 	}
 
 	// allow the message/command to be processed before reading the response
-	time.Sleep(100 * time.Millisecond)
-	n, str, err := p._read(chunkSize)
+	time.Sleep(200 * time.Millisecond)
 
-	writeDebug("response: "+str, 3)
+	var n int
+	var str string
+	i := 0
+	for {
+		n, str, err = p._read(chunkSize)
+		if err == nil {
+			break
+		}
+		i += 1
+		if i > 9 {
+			writeDebug("No successful read after 10 times!", 1)
+			return 0, "", err
+		}
+	}
+	writeDebug("response: "+str+"\n"+hex.Dump([]byte(str)), 2)
+	if ch >= 0 {
 
+		// check for re-request 	#170#170#170#85
+		for {
+			if str != fmt.Sprintf("%c%c%c%c", 170, 170, 170, 85) {
+				break
+			}
+			// packet was re-requested!!
+			writeDebug("Packet re-request received!", 2)
+			err = p._writeChannel(msg, ch, isCommand)
+			if err != nil {
+				return 0, "", err
+			}
+			time.Sleep(200 * time.Millisecond)
+			n, str, err = p._read(chunkSize)
+		}
+		// check then length to prevent out of range panics
+		// if the answer is <=2 bytes, it's not a CRC hostmode packet
+		if len(str) > 2 {
+			// CRC Hostmode decoding
+			// we "hexlify" it first, that makes it easier to debug
+			// then we rely on helper functions
+			hexstring := hex.EncodeToString([]byte(str))
+			// Step 1: destuff
+			hexstring = unstuff(hexstring)
+			// Step 2: check CRC
+			if checkcrc(hexstring) == false {
+				writeDebug("Wrong checksum in package!", 1)
+				return 0, "", errors.New("Checksum error at receiving packet")
+			}
+
+			//remove #170#170 at the beginning at chksum at the end
+			hexstring = hexstring[4 : len(hexstring)-4]
+			r, err := hex.DecodeString(hexstring)
+			if err != nil {
+				return 0, "", err
+			}
+			p.packetcounter = !(p.packetcounter)
+			str = string(r)
+			n = len(str)
+		} else {
+			//packet is too short to be a real WA8DED packet
+			return 0, "", errors.New("packet too short to be a WA8DED packet")
+		}
+
+	}
 	return n, str, err
 }
 
@@ -715,11 +781,17 @@ func (p *Modem) _write(cmd string) error {
 
 	p.mux.device.Lock()
 	defer p.mux.device.Unlock()
-	if _, err := p.device.Write([]byte(cmd + "\r")); err != nil {
-		writeDebug(err.Error(), 2)
-		return err
+	for {
+		_, err := p.device.Write([]byte(cmd + "\r"))
+		if err == nil {
+			break
+		}
+		if err != unix.EINTR {
+			return err
+		}
+		fmt.Println("Interrupted system call receveived during write")
 	}
-
+	time.Sleep(5 * time.Millisecond)
 	return nil
 }
 
@@ -732,6 +804,72 @@ func (p *Modem) writeChannel(msg string, ch int, isCommand bool) error {
 	return p._writeChannel(msg, ch, isCommand)
 }
 
+// *** Helper functions for the CRC hostmode
+// Allthough these functions are small, I prefer to keep their functionality
+// separate. They follow the steps in the SCS documentation
+
+// helper function: de-hexlify and write to debug channel
+func printhex(s string) {
+	t, _ := hex.DecodeString(s)
+	writeDebug(string(t), 3)
+}
+
+// helper function: "unstuff" a string
+func unstuff(s string) string {
+	//Expect: the string contains aa aa at the beginning, that should NOT be
+	//stuffed
+	n, _ := hex.DecodeString(s[4:])
+	n = bytes.ReplaceAll(n, []byte{170, 0}, []byte{170})
+	var r []byte
+	r = append([]byte{0xaa, 0xaa}, n...)
+	re := hex.EncodeToString(r)
+	return re
+}
+
+// helper function: "stuff" a string: replaces every #170 with #170#0
+func stuff(s string) string {
+	//Expect: the string contains aa aa at the beginning, that should NOT be
+	//stuffed
+	n, err := hex.DecodeString(s[4:])
+	if err != nil {
+		writeDebug("ERROR in Stuff: "+err.Error(), 1)
+	}
+
+	n = bytes.ReplaceAll(n, []byte{170}, []byte{170, 0})
+	var r []byte
+	r = append([]byte{0xaa, 0xaa}, n...)
+	re := hex.EncodeToString(r)
+	return re
+}
+
+// helper function: calculates the CCITT-CRC16 checksum
+func checksum(s string) uint16 {
+	tochecksum, _ := hex.DecodeString(s[4:])
+	chksum := bits.ReverseBytes16(crc16.ChecksumCCITT([]byte(tochecksum)))
+	return chksum
+}
+
+// helper fuction: check the checksum by comparing
+func checkcrc(s string) bool {
+	tochecksum, _ := hex.DecodeString(s[4 : len(s)-3])
+	chksum := bits.ReverseBytes16(crc16.ChecksumCCITT([]byte(tochecksum)))
+	pksum, _ := hex.DecodeString(s[len(s)-4:])
+	return (binary.BigEndian.Uint16(pksum) == chksum)
+}
+
+// super helper fuction: convert an ordinary WA8DED message into a CRC-Hostmode message
+func docrc(msg string) string {
+	// step 1: add a #170170
+	msg = fmt.Sprintf("%02x%02x%s", 170, 170, msg)
+	// step 2: calculate and add the checksum
+	chksum := checksum(msg)
+	msg = fmt.Sprintf("%s%04x", msg, chksum)
+	// step 3: add "stuff" bytes
+	msg = stuff(msg)
+	return msg
+
+}
+
 // Write channel to serial connection (NOT thread safe)
 //
 // If used, make shure to lock/unlock p.mux.pactor mutex!
@@ -741,19 +879,24 @@ func (p *Modem) _writeChannel(msg string, ch int, isCommand bool) error {
 		return err
 	}
 
-	// command => 01
-	d := "01"
-	if !isCommand {
-		// info/data => 00
+	var d string
+	switch {
+	case !p.packetcounter && !isCommand:
 		d = "00"
+	case !p.packetcounter && isCommand:
+		d = "01"
+	case p.packetcounter && !isCommand:
+		d = "80"
+	case p.packetcounter && isCommand:
+		d = "81"
 	}
 
 	c := fmt.Sprintf("%02x", ch)
 	l := fmt.Sprintf("%02x", (len(msg) - 1))
 	s := hex.EncodeToString([]byte(msg))
-	bs, _ := hex.DecodeString(fmt.Sprintf("%s%s%s%s", c, d, l, s))
-
-	writeDebug("write channel: "+string(bs), 3)
+	// add crc hostmode addons
+	bs, _ := hex.DecodeString(docrc(fmt.Sprintf("%s%s%s%s", c, d, l, s)))
+	writeDebug("write channel: \n"+hex.Dump(bs), 2)
 
 	p.mux.device.Lock()
 	defer p.mux.device.Unlock()
@@ -787,10 +930,18 @@ func (p *Modem) _read(chunkSize int) (int, string, error) {
 
 	p.mux.device.Lock()
 	defer p.mux.device.Unlock()
-	n, err := p.device.Read(buf)
-	if err != nil {
-		writeDebug(err.Error(), 2)
-		return 0, "", err
+	var n int
+	var err error
+	for {
+		n, err = p.device.Read(buf)
+		if err == nil {
+			break
+		}
+		if err != unix.EINTR {
+			writeDebug("Error received during read: "+err.Error(), 1)
+			return 0, "", err
+		}
+		writeDebug("Interrupted System Call reveived during read. Read bytes: "+strconv.Itoa(n), 2)
 	}
 
 	return n, string(buf[0:n]), nil

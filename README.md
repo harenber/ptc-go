@@ -112,26 +112,41 @@ FQ
 (for advanced users only)
 
 You can change the PTC to use PACKET radio instead of PACTOR by moving
-the PACTOR channel away from the default channel 4 (Channel is a data
+the PACTOR channel away from the default channel 31 (Channel is a data
 stream inside the WA8DED protocol). The easiest way to do that is to
-add a
+add a init option to the connect command like for example:
 
 ```
-PTCH 1
+./pat connect "pactor:///PJ2A?init=PTCH%204"
 ```
 
-to the script which is called by `custom_init_script`.
 
 ## Supported hardware
 
 The code has tested against the PTC-II and -III series of the SCS PTC
-modems. It should work with USB, serial and Bluetooth connections. The
-P4 Dragon seems to use a non-standard baudrate on the serial line,
-which is not supported by the underlying Go package. And I do not own one of these modems. So for the time
-being, these new modems are unfortunately **not** supported,
-although there has been some [effort](https://github.com/harenber/ptc-go/tree/feature/p4-dragon) from Martin, LA4NTA, to get those modems running as well. If you
-think you can contribute, please feel free to comment on [issue #3](https://github.com/harenber/ptc-go/issues/3).
-Swiss PTC modems should be supported as well, see [issue #26](https://github.com/harenber/ptc-go/issues/26)
+modems. It should work with USB, serial and Bluetooth connections.
+v2.2.0 brings (finally) support for the Dragon PACTOR-4 series of
+modems. 
+
+Do get that supported, v2.2.0 changes quite a bit:
+
+- the driver speaks now the enhanced CRC Hostmode instead of plain WA8DED hostmode to the modem,
+- the underlying serial library has changed to [this one](https://github.com/albenik/go-serial) supporting  non-standard baud rates.
+
+The P4 Dragon series use a non-standard baud rate of 829440 baud, so an example config.json for Linux is
+
+```
+  "pactor": {
+    "path": "/dev/ttyUSB0",
+    "baudrate": 829440,
+    "rig": "",
+    },
+```
+
+For operating systems other than Linux (MacOS and Windows), you need to install the SCS driver and follow their instructions about the baudrate to use.
+
+Support of the Dragon modems is new and has been followed in [issue #3](https://github.com/harenber/ptc-go/issues/3).
+Swiss PTC modems should be supported as well, see [issue #26](https://github.com/harenber/ptc-go/issues/26).
 
 ## What is missing
 
@@ -139,7 +154,7 @@ There are a lot of features that would be nice to have and which are
 still under development. Most notably these are:
 
 * listen mode. At the moment, the driver can only call remote station but cannot accept connections.
-* P4 Dragon support. (see [this issue](https://github.com/harenber/ptc-go/issues/3) for details). As I don't own such a device, feedback is more than welcome.
+* Rig contol through the PTC.
 
 If you feel you are able to contribute, you are more than
 welcome. Please comment on the appropreate issues.
@@ -165,4 +180,5 @@ Otherwise, feel free to open issues to this repository if you find bugs not repo
 First I wish to thank Martin Hebnes Pedersen, LA5NTA, for developing
 Pat, his patience and for his helpful code reviews. Further thanks to my good friend
 Brett Ruiz, PJ2BR, for providing a second station for beta-testing. And thanks to @blockmurder for
-the testing and patches.
+the testing and patches. Futhermore, I would like to thank the nice folks at SCS for 
+their support.
