@@ -32,14 +32,13 @@ type State uint8
 var debugMux sync.Mutex
 
 func debugEnabled() int {
-	if value, ok := os.LookupEnv("pactor_debug"); ok {
+	if value, ok := os.LookupEnv("PACTOR_DEBUG"); ok {
 		level, err := strconv.Atoi(value)
 		if err == nil {
 			return level
 		}
 	}
 	return 0
-
 }
 
 func writeDebug(message string, level int) {
