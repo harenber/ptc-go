@@ -1,4 +1,4 @@
-module github.com/harenber/ptc-go/pactor/v2
+module github.com/harenber/ptc-go/v2
 
 go 1.11
 
