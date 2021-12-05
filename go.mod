@@ -1,4 +1,4 @@
-module github.com/harenber/ptc-go/v2
+module github.com/andreaspeters/ptc-go/v2
 
 go 1.11
 
