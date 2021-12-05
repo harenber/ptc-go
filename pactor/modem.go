@@ -141,7 +141,7 @@ func OpenModem(path string, baudRate int, myCall string, initScript string, cmdl
 	writeDebug("Running init commands", 1)
 	commands := []string{"MYcall " + p.localAddr, "PTCH " + strconv.Itoa(PactorChannel),
 		"MAXE 35", "REM 0", "CHOB 0",
-		"TONES 4", "MARK 1600", "SPACE 1400", "CWID 0", "CONType 3", "MODE 0"}
+		"TONES 4", "MARK 1600", "SPACE 1400", "CWID 0", "MODE 0"}
 
 	//run additional commands provided on the command line with "init"
 	if cmdlineinit != "" {
