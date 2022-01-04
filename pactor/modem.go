@@ -11,6 +11,7 @@ import (
 	"math/bits"
 	"net"
 	"os"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -239,7 +240,7 @@ func (p *Modem) Accept() (net.Conn, error) {
 		writeDebug("incoming connection received", 1)
 		return p, nil
 	}
-	return nil, errors.New("listener Accept method ended without connection")
+	return nil, nil
 }
 
 func (p *Modem) Addr() net.Addr {
@@ -699,9 +700,23 @@ func (p *Modem) checkResponse(resp string, ch int) (n int, data []byte, err erro
 		writeDebug("WARNING: Returned data does not match polled channel\n"+hex.Dump([]byte(resp)), 1)
 		return 0, nil, fmt.Errorf("Channel missmatch")
 	}
-	if int(head[1]) != 7 {
+	if int(head[1]) != 7 && int(head[1]) !=3 {
 		writeDebug("Not a data response: "+string(payload), 1)
 		return 0, nil, fmt.Errorf("Not a data response")
+	}
+	if int(head[1]) == 3 { //Link status
+		// there is no way to get the remote callsign from the WA8DED data, so we have to parse the link status :(
+		re, err := regexp.Compile(` CONNECTED to \w{2,16}`)
+		if err != nil {
+			writeDebug("Cannot convert connect message to callsign: "+string(payload),1)
+		} else {
+			ans := strings.ReplaceAll(string(re.Find(payload)), " CONNECTED to ", "")
+			if len(ans)>2 { //callsign consists of 3+ characters
+				p.remoteAddr = ans
+				writeDebug("PACTOR connection to: "+ans,0)
+			}
+		}
+		return 0,nil,fmt.Errorf("Link data") 
 	}
 	if length != pl {
 		writeDebug("WARNING: Data length "+strconv.Itoa(pl)+" does not match stated amount "+strconv.Itoa(length)+". After "+strconv.Itoa(p.goodChunks)+" good chunks.", 1)
@@ -944,7 +959,7 @@ func (p *Modem) Close() error {
 	case <-p.flags.disconnected:
 		writeDebug("Disconnect successful", 1)
 		p.close()
-		return errors.New("Connection closed")
+		return nil
 	case <-time.After(60 * time.Second):
 		p.forceDisconnect()
 		p.close()
