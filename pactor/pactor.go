@@ -3,6 +3,7 @@ package pactor
 import (
 	"log"
 	"os"
+	"runtime"
 	"strconv"
 	"sync"
 )
@@ -45,7 +46,12 @@ func writeDebug(message string, level int) {
 	debugMux.Lock()
 	defer debugMux.Unlock()
 	if debugEnabled() >= level {
-		log.Println(message)
+		_, file, no, ok := runtime.Caller(1)
+		if ok {
+			log.Println(file+"#"+strconv.Itoa(no)+": "+message)
+		} else {
+			log.Println(message)
+		}
 	}
 	return
 }

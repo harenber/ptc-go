@@ -39,6 +39,7 @@ type pflags struct {
 	exit         bool
 	closeCalled  bool
 	closed       bool
+	listenMode   bool
 	disconnected chan struct{}
 	connected    chan struct{}
 	closeWriting chan struct{}
@@ -182,10 +183,22 @@ func OpenModem(path string, baudRate int, myCall string, initScript string, cmdl
 }
 
 func (p *Modem) reInit() error {
+	writeDebug("Re-initialzing PACTOR modem. Waiting for threads to finish", 1)
+	p.wg.Wait()
 	p.flags.closed = false
 	p.flags.exit = false
+	writeDebug("Re-initialzing PACTOR modem.", 1)
+
+	p.recvBuf = make(chan []byte, 0)         // we have to create a new recvBuf
+	p.sendBuf = make(chan byte, MaxSendData) // clean sendBuf
+	p.sendBufLen = 0
+	p.state = Unknown
+	p.stateOld = Unknown
+	p.remoteAddr = ""
+
 	p.hostmodeQuit() // throws error if not in hostmode (e.g. from previous connection)
 	if _, _, err := p.writeAndGetResponse("", -1, false, 10240); err != nil {
+		writeDebug(err.Error(), 0)
 		return err
 	}
 
@@ -193,11 +206,13 @@ func (p *Modem) reInit() error {
 	// main menu!
 	_, _, err := p.writeAndGetResponse("Quit", -1, false, 1024)
 	if err != nil {
+		writeDebug(err.Error(), 0)
 		return err
 	}
 	p.hostmodeStart() // throws error when switching successfully to hostmode
 
-	if err = p.runControlLoops(); err != nil {
+	if err := p.runControlLoops(); err != nil {
+		writeDebug(err.Error(), 0)
 		return err
 	}
 
@@ -209,6 +224,9 @@ func (p *Modem) reInit() error {
 //
 // BLOCKING until either connected, pactor states disconnect or timeout occures
 func (p *Modem) call(targetCall string) (err error) {
+	if p.flags.listenMode {
+		return fmt.Errorf("Cannot call a remote station on PACTOR while listen mode is active!")
+	}
 	p.remoteAddr = targetCall
 	if err = p.connect(); err != nil {
 		return err
@@ -231,8 +249,8 @@ func (p *Modem) call(targetCall string) (err error) {
 // Accept: when in listening mode, BLOCK until a connection is received.
 func (p *Modem) Accept() (net.Conn, error) {
 	writeDebug("Enetering listener Accept method", 1)
-	if p.flags.exit == true {
-		writeDebug("Re-initialzing PACTOR modem", 1)
+	p.flags.listenMode = true
+	if p.flags.exit {
 		p.reInit()
 	}
 	select {
@@ -240,6 +258,7 @@ func (p *Modem) Accept() (net.Conn, error) {
 		writeDebug("incoming connection received", 1)
 		return p, nil
 	}
+	p.flags.listenMode = false
 	return nil, nil
 }
 
@@ -293,10 +312,10 @@ func (p *Modem) runControlLoops() error {
 //
 // Is run twice the frequency of send/receive thread
 func (p *Modem) statusThread() {
-	writeDebug("start status thread", 2)
+	writeDebug("start status thread", 1)
 	for {
 		if p.flags.exit {
-			writeDebug("Bailing out of status thread", 2)
+			writeDebug("Bailing out of status thread", 1)
 			break
 		}
 
@@ -306,7 +325,7 @@ func (p *Modem) statusThread() {
 		time.Sleep(500 * time.Millisecond)
 	}
 	p.wg.Done()
-	writeDebug("exit status thread", 2)
+	writeDebug("exit status thread", 1)
 }
 
 // Receive thread: receiving data from modem if available
@@ -314,15 +333,12 @@ func (p *Modem) statusThread() {
 // Pactor modem status must be "connected". New data is written to the recv_buffer
 // channel. BLOCKING until recvBuf has been read (e.g. by Read() function)
 func (p *Modem) receiveThread() {
-	writeDebug("start receive thread", 2)
+	writeDebug("start receive thread", 1)
 
-	for {
-		if p.flags.exit {
-			// The recvBuf needs to close so that pat detects the end of the lifetime of the connection
-			// reInit will be called...
-			close(p.recvBuf)
-			break
-		}
+	for p.flags.exit == false {
+		writeDebug("ping receive thread", 3)
+
+		time.Sleep(1000 * time.Millisecond)
 
 		if p.state == Connected {
 			var res []byte
@@ -342,10 +358,20 @@ func (p *Modem) receiveThread() {
 			}
 		}
 
-		time.Sleep(1000 * time.Millisecond)
+		// if p.flags.exit {
+		// 	writeDebug("exiting receive thread", 1)
+		// 	// The recvBuf needs to close so that pat detects the end of the lifetime of the connection
+		// 	// reInit will be called...
+		// 	close(p.recvBuf)
+		// 	break
+		// }
+
 	}
+	// The recvBuf needs to be closed so that pat detects the end of the lifetime of the connection
+	// reInit will be called...
+	close(p.recvBuf)
 	p.wg.Done()
-	writeDebug("exit receive thread", 2)
+	writeDebug("exit receive thread", 1)
 }
 
 // Send thread: Write data or command into the transmit buffer of the modem
@@ -354,10 +380,13 @@ func (p *Modem) receiveThread() {
 // held back until maximum number of frames not transmitted drops below
 // MaxFrameNotTX
 func (p *Modem) sendThread() {
-	writeDebug("start send thread", 2)
+	writeDebug("start send thread", 1)
 
 	for {
 		if p.flags.exit {
+			writeDebug("exiting send thread", 1)
+			close(p.sendBuf)
+			p.sendBufLen = 0
 			break
 		}
 
@@ -447,6 +476,7 @@ func (p *Modem) connect() (err error) {
 // frames). Check with waitTransmissionFinish() for remaining or not acknowledged
 // frames.
 func (p *Modem) disconnect() (err error) {
+	writeDebug("PACTOR disconnect command", 0)
 	return p.send("D")
 }
 
@@ -455,6 +485,7 @@ func (p *Modem) disconnect() (err error) {
 // Try to disconnect with disconnect() first. Clears all data remaining in
 // modem transmission buffer
 func (p *Modem) forceDisconnect() (err error) {
+	writeDebug("PACTOR force discconnect command", 0)
 	return p.send("DD")
 }
 
@@ -466,10 +497,15 @@ func (p *Modem) send(msg string) error {
 
 // Close current serial connection. Stop all threads and close all channels.
 func (p *Modem) close() (err error) {
-	if p.flags.closed {
-		return nil
+	// if p.flags.closed {
+	// 	return nil
+	// }
+	_, file, no, ok := runtime.Caller(1)
+	if ok {
+		writeDebug("PACTOR close called from "+file+"#"+strconv.Itoa(no), 1)
+	} else {
+		writeDebug("PACTOR close called", 1)
 	}
-	
 
 	p.flags.closed = true
 	p.flags.exit = true
@@ -480,13 +516,13 @@ func (p *Modem) close() (err error) {
 	// close(p.cmdBuf)
 	// close(p.sendBuf)
 
-	writeDebug("waiting for all threads to exit", 2)
+	writeDebug("waiting for all threads to exit", 1)
 	p.wg.Wait()
 
 	p.hostmodeQuit()
 	// The serial device shouldn't be closed anymore b/c listen mode requires us to keep it the modem structure open
-	// p.device.Close()
-	writeDebug("PACTOR close() finsihed", 2)
+	//p.device.Close()
+	writeDebug("PACTOR close() finsihed", 1)
 	return nil
 }
 
@@ -579,16 +615,18 @@ func (p *Modem) eventHandler() {
 		if p.stateOld == Connected && p.state == Disconnected ||
 			p.stateOld == DisconnectReq && p.state == Disconnected {
 			if p.flags.closeCalled != true {
-				//p.flags.closeCalled = true
+				p.flags.closeCalled = true
 				writeDebug("Connection lost", 1)
-				go p.Close() //run as separate thread in order not to block
+				p.flags.exit = true
+				//go p.Close() //run as separate thread in order not to block
 			}
 			setFlag(p.flags.disconnected)
 			writeDebug("Disconnect occured", 1)
+			p.flags.exit = true
 		}
 		if p.stateOld == Connected && p.state == DisconnectReq {
 			writeDebug("Disconnect requested", 1)
-			go p.Close() //run as separate thread in order not to block
+			//go p.Close() //run as separate thread in order not to block
 		}
 
 		p.stateOld = p.state
@@ -700,7 +738,7 @@ func (p *Modem) checkResponse(resp string, ch int) (n int, data []byte, err erro
 		writeDebug("WARNING: Returned data does not match polled channel\n"+hex.Dump([]byte(resp)), 1)
 		return 0, nil, fmt.Errorf("Channel missmatch")
 	}
-	if int(head[1]) != 7 && int(head[1]) !=3 {
+	if int(head[1]) != 7 && int(head[1]) != 3 {
 		writeDebug("Not a data response: "+string(payload), 1)
 		return 0, nil, fmt.Errorf("Not a data response")
 	}
@@ -708,15 +746,15 @@ func (p *Modem) checkResponse(resp string, ch int) (n int, data []byte, err erro
 		// there is no way to get the remote callsign from the WA8DED data, so we have to parse the link status :(
 		re, err := regexp.Compile(` CONNECTED to \w{2,16}`)
 		if err != nil {
-			writeDebug("Cannot convert connect message to callsign: "+string(payload),1)
+			writeDebug("Cannot convert connect message to callsign: "+string(payload), 1)
 		} else {
 			ans := strings.ReplaceAll(string(re.Find(payload)), " CONNECTED to ", "")
-			if len(ans)>2 { //callsign consists of 3+ characters
+			if len(ans) > 2 { //callsign consists of 3+ characters
 				p.remoteAddr = ans
-				writeDebug("PACTOR connection to: "+ans,0)
+				writeDebug("PACTOR connection to: "+ans, 0)
 			}
 		}
-		return 0,nil,fmt.Errorf("Link data") 
+		return 0, nil, fmt.Errorf("Link data")
 	}
 	if length != pl {
 		writeDebug("WARNING: Data length "+strconv.Itoa(pl)+" does not match stated amount "+strconv.Itoa(length)+". After "+strconv.Itoa(p.goodChunks)+" good chunks.", 1)
@@ -913,20 +951,26 @@ func (p *Modem) Close() error {
 		writeDebug("PACTOR Close called", 1)
 	}
 
-	if p.flags.closed {
-		writeDebug("PACTOR Close() called on a closed connection", 1)
-		return errors.New("Close called on a closed connection")
+	if p == nil { // already closed, nothing to do.
+		writeDebug("Modem instance already closed.", 1)
+		return nil
 	}
+
+	//	if p.flags.closed {
+	//		writeDebug("PACTOR Close() called on a closed connection", 1)
+	//		return errors.New("Close called on a closed connection")
+	//	}
 
 	p.mux.close.Lock()
 	defer p.mux.close.Unlock()
 
 	// force update PACTOR state
 	_ = p.updatePactorState()
-	if p.flags.closeCalled != true {
+	//	if p.flags.closeCalled != true {
+	p.flags.listenMode = false
+	if true {
 
-		p.flags.closeCalled = true
-
+		//p.flags.closeCalled = true
 		switch p.state {
 		case Connected:
 			writeDebug("close called while still connected", 2)
@@ -934,23 +978,31 @@ func (p *Modem) Close() error {
 			// gracefully
 
 			// Wait for remaining data to be transmitted and acknowledged
-			if err := p.waitTransmissionFinish(90 * time.Second); err != nil {
-				writeDebug(err.Error(), 2)
-			}
+			// if err := p.waitTransmissionFinish(90 * time.Second); err != nil {
+			// 	writeDebug(err.Error(), 2)
+			// }
 
 			p.disconnect()
 
 			// Wait for disconnect command to be transmitted and acknowledged
-			if err := p.waitTransmissionFinish(30 * time.Second); err != nil {
-				writeDebug(err.Error(), 2)
-			}
+			// if err := p.waitTransmissionFinish(30 * time.Second); err != nil {
+			// 	writeDebug(err.Error(), 2)
+			// }
 
 		case Disconnected:
+			p.flags.exit = true
+			p.close()
+			return nil
+
+		case Unknown:
+			return nil
 
 		default:
-			// Link Setup (connection) not yet successful, force disconnect
-			writeDebug("Calling force disconnect", 2)
+			// Link Setup (connection) not yet successful,...
 			p.forceDisconnect()
+			p.flags.exit = true
+			p.close()
+			return nil
 		}
 	}
 
@@ -958,10 +1010,12 @@ func (p *Modem) Close() error {
 	select {
 	case <-p.flags.disconnected:
 		writeDebug("Disconnect successful", 1)
+		p.flags.exit = true
 		p.close()
 		return nil
 	case <-time.After(60 * time.Second):
 		p.forceDisconnect()
+		p.flags.exit = true
 		p.close()
 		return fmt.Errorf("Disconnect timed out")
 	}
