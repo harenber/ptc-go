@@ -1,5 +1,5 @@
-github.com/albenik/go-serial/v2 v2.5.0 h1:I4oUK+zxjHBNtcYHyHifyxBhMX33jCFY9ieUXPsdSAI=
-github.com/albenik/go-serial/v2 v2.5.0/go.mod h1:ySdCqoERscw1xluK1n62R8Faoyu+jXKwVHPa1lSSAew=
+github.com/albenik/go-serial/v2 v2.5.1 h1:nnnyjuwIJLdih8yJyrncLFLQtGCnIppLcTNNtPg+ME0=
+github.com/albenik/go-serial/v2 v2.5.1/go.mod h1:ySdCqoERscw1xluK1n62R8Faoyu+jXKwVHPa1lSSAew=
 github.com/creack/goselect v0.1.2 h1:2DNy14+JPjRBgPzAd1thbQp4BSIihxcBf0IXhQXDRa0=
 github.com/creack/goselect v0.1.2/go.mod h1:a/NhLweNvqIYMuxcMOuWY516Cimucms3DglDzQP3hKY=
 github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
