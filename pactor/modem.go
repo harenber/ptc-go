@@ -71,8 +71,7 @@ type Modem struct {
 	goodChunks    int
 	recvBuf       bytes.Buffer
 	cmdBuf        chan string
-	sendBuf       chan byte
-	sendBufLen    int
+	sendBuf       bytes.Buffer
 	packetcounter bool
 }
 
@@ -112,9 +111,9 @@ func OpenModem(path string, baudRate int, myCall string, initScript string, cmdl
 		channelState: cstate{a: 0, b: 0, c: 0, d: 0, e: 0, f: 0},
 		goodChunks:   0,
 		//recvBuf:      make(chan []byte, 0),
-		cmdBuf:     make(chan string, 0),
-		sendBuf:    make(chan byte, MaxSendData),
-		sendBufLen: 0,
+		cmdBuf: make(chan string, 0),
+		//sendBuf:    make(chan byte, MaxSendData),
+		//sendBufLen: 0,
 	}
 
 	writeDebug("Initialising pactor modem", 1)
@@ -190,8 +189,8 @@ func (p *Modem) reInit() error {
 	writeDebug("Re-initialzing PACTOR modem.", 1)
 
 	//p.recvBuf = make(chan []byte, 0)         // we have to create a new recvBuf
-	p.sendBuf = make(chan byte, MaxSendData) // clean sendBuf
-	p.sendBufLen = 0
+	//p.sendBuf = make(chan byte, MaxSendData) // clean sendBuf
+	//p.sendBufLen = 0
 	p.state = Unknown
 	p.stateOld = Unknown
 	p.remoteAddr = ""
@@ -248,7 +247,10 @@ func (p *Modem) call(targetCall string) (err error) {
 
 // Accept: when in listening mode, BLOCK until a connection is received.
 func (p *Modem) Accept() (net.Conn, error) {
-	writeDebug("Enetering listener Accept method", 1)
+	if p.flags.exit {
+		return nil, io.EOF
+	}
+	writeDebug("Entering listener Accept method", 1)
 	p.flags.listenMode = true
 	/*	if p.flags.exit {
 		p.reInit()
@@ -367,25 +369,9 @@ func (p *Modem) modemThread() {
 // The amount of data bytes read from the sendBuf channel is limited by
 // MaxSendData as the modem only accepts MaxSendData of bytes each command
 func (p *Modem) getSendData() (data []byte) {
-	count := 0
-	for {
-		if count < MaxSendData {
-			select {
-			case b := <-p.sendBuf:
-				data = append(data, b)
-				count++
-				p.mux.bufLen.Lock()
-				p.sendBufLen--
-				p.mux.bufLen.Unlock()
-			default:
-				writeDebug("No more data to send after "+strconv.Itoa(count)+" bytes", 3)
-				return
-			}
-		} else {
-			writeDebug("Reached max send data size ("+strconv.Itoa(count)+" bytes)", 3)
-			return
-		}
-	}
+	buf := make([]byte, p.sendBuf.Len())
+	_, _ = p.sendBuf.Read(buf)
+	return buf
 }
 
 // Wait for transmission to be finished
@@ -460,7 +446,7 @@ func (p *Modem) close() (err error) {
 	}
 
 	p.flags.closed = true
-	p.flags.exit = true
+
 	// Channels shouldn't be closed anymore b/c listen mode requires us to keep it the modem structure open
 	// close(p.flags.closeWriting)
 	// close(p.flags.disconnected)
@@ -473,7 +459,7 @@ func (p *Modem) close() (err error) {
 
 	p.hostmodeQuit()
 	// The serial device shouldn't be closed anymore b/c listen mode requires us to keep it the modem structure open
-	//p.device.Close()
+	p.device.Close()
 
 	writeDebug("PACTOR close() finished", 1)
 	return nil
@@ -903,15 +889,21 @@ func (p *Modem) Read(d []byte) (int, error) {
 // BLOCK if send buffer is full! Remains as soon as there is space left in the
 // send buffer
 func (p *Modem) Write(d []byte) (int, error) {
+	writeDebug("Write() called with "+string(d), 3)
 	p.mux.write.Lock()
 	defer p.mux.write.Unlock()
 
-	if p.state != Connected {
+	if p.channelState.f == 0 {
 		return 0, fmt.Errorf("Read from closed connection")
 	}
 
 	for _, b := range d {
-		select {
+		if p.sendBuf.Len() > MaxSendData {
+			time.Sleep(time.Second)
+		} else {
+			p.sendBuf.WriteByte(b)
+		}
+		/*select {
 		case <-p.flags.closeWriting:
 			return 0, fmt.Errorf("Writing on closed connection")
 		case p.sendBuf <- b:
@@ -919,7 +911,7 @@ func (p *Modem) Write(d []byte) (int, error) {
 
 		p.mux.bufLen.Lock()
 		p.sendBufLen++
-		p.mux.bufLen.Unlock()
+		p.mux.bufLen.Unlock()*/
 	}
 
 	return len(d), nil
@@ -952,7 +944,7 @@ func (p *Modem) Close() error {
 		writeDebug("PACTOR Close called", 1)
 	}
 
-	if p == nil { // already closed, nothing to do.
+	if p == nil || p.flags.exit { // already closed, nothing to do.
 		writeDebug("Modem instance already closed.", 1)
 		return nil
 	}
@@ -976,14 +968,23 @@ func (p *Modem) Close() error {
 				}
 			} else {
 				p.forceDisconnect()
-				p.flags.exit = true
+				//p.flags.exit = true
 				p.close()
 				return fmt.Errorf("Disconnect timed out")
 			}
 			time.Sleep(time.Second)
 		}
+	} else { // PACTOR modem is _NOT_ connected and Close() is called, so probably the user wants to end listen mode
+		if p.flags.listenMode {
+			writeDebug("ListenMode should finish", 1)
+			p.flags.exit = true
+			//p = nil
+			p.close()
+			time.Sleep(500 * time.Millisecond) // wait half a second
+			writeDebug("Close() finished.", 1)
+			return io.EOF
+		}
 	}
-
 	writeDebug("Close() finished.", 1)
 	return nil
 }
@@ -993,8 +994,8 @@ func (p *Modem) Close() error {
 func (p *Modem) TxBufferLen() int {
 	p.mux.bufLen.Lock()
 	defer p.mux.bufLen.Unlock()
-	writeDebug("TxBufferLen called ("+strconv.Itoa(p.sendBufLen)+" bytes remaining in buffer)", 2)
-	return p.sendBufLen + (p.getNumFramesNotTransmitted() * MaxSendData)
+	writeDebug("TxBufferLen called ("+strconv.Itoa(p.sendBuf.Len())+" bytes remaining in buffer)", 2)
+	return p.sendBuf.Len() + (p.getNumFramesNotTransmitted() * MaxSendData)
 }
 
 // Write to serial connection (thread safe)
