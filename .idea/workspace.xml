@@ -7,6 +7,7 @@
     <list default="true" id="08ce9cc2-71ed-44e1-a57a-266d8b12d7f2" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/pactor/modem.go" beforeDir="false" afterPath="$PROJECT_DIR$/pactor/modem.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/pactor/pactor.go" beforeDir="false" afterPath="$PROJECT_DIR$/pactor/pactor.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -43,7 +44,8 @@
     "go.import.settings.migrated": "true",
     "go.sdk.automatically.set": "true",
     "last_opened_file_path": "/Users/harenber",
-    "nodejs_package_manager_path": "npm"
+    "nodejs_package_manager_path": "npm",
+    "settings.editor.selected.configurable": "editor.reader.mode"
   }
 }]]></component>
   <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
@@ -76,7 +78,8 @@
   <component name="VcsManagerConfiguration">
     <option name="CHECK_CODE_SMELLS_BEFORE_PROJECT_COMMIT" value="false" />
     <MESSAGE value="vor Aenderung sendbuf" />
-    <option name="LAST_COMMIT_MESSAGE" value="vor Aenderung sendbuf" />
+    <MESSAGE value="Listen runs as expected&#10;&#10;Close() now return io.EOF if it's in listen mode and the &#10;modem is not connected, so Pat quits" />
+    <option name="LAST_COMMIT_MESSAGE" value="Listen runs as expected&#10;&#10;Close() now return io.EOF if it's in listen mode and the &#10;modem is not connected, so Pat quits" />
   </component>
   <component name="VgoProject">
     <settings-migrated>true</settings-migrated>

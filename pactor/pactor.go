@@ -10,12 +10,12 @@ import (
 
 // SerialTimeout: Timeout for read operations on serial bus
 // PactorChannel: Pactor channel, 31 should work for both, PTC-IIex and P4 Dragon
-// MaxSendData:   Pactor internal command buffer is 256 byte
+// MaxSendData:   Pactor internal command sendbuf is 256 byte
 // MaxFrameNotTX: Max. number of frames not transmitted at time.
 const (
 	SerialTimeout = 1
 	PactorChannel = 31
-	MaxSendData   = 256
+	MaxSendData   = 255
 	MaxFrameNotTX = 2
 )
 
@@ -48,7 +48,7 @@ func writeDebug(message string, level int) {
 	if debugEnabled() >= level {
 		_, file, no, ok := runtime.Caller(1)
 		if ok {
-			log.Println(file+"#"+strconv.Itoa(no)+": "+message)
+			log.Println(file + "#" + strconv.Itoa(no) + ": " + message)
 		} else {
 			log.Println(message)
 		}
