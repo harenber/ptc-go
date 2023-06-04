@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/albenik/go-serial/v2"
 	"io"
 	"log"
 	"math/bits"
@@ -19,7 +20,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/albenik/go-serial/v2"
 	"github.com/howeyc/crc16"
 )
 
@@ -51,13 +51,12 @@ type cstate struct {
 }
 
 type pflags struct {
-	exit        bool
-	closeCalled bool
-	closed      bool
-	listenMode  bool
+	exit       bool
+	stopmodem  bool
+	listenMode bool
 	//disconnected chan struct{}
 	connected    chan struct{}
-	closeWriting chan struct{}
+	closeWaiting chan struct{}
 }
 
 type pmux struct {
@@ -77,8 +76,7 @@ type Modem struct {
 	localAddr  string
 	remoteAddr string
 
-	state    State
-	stateOld State
+	state State
 
 	device        *serial.Port
 	mux           pmux
@@ -90,6 +88,10 @@ type Modem struct {
 	cmdBuf        chan string
 	sendBuf       bytes.Buffer
 	packetcounter bool
+	chanbusy      bool
+	cmdlineinit   string
+	initfile      string
+	closeOnce     sync.Once
 }
 
 func (p *Modem) SetDeadline(t time.Time) error      { return nil }
@@ -106,7 +108,7 @@ func (p *Modem) LocalAddr() net.Addr  { return Addr{p.localAddr} }
 //
 // Will abort if modem reports failed link setup, Close() is called or timeout
 // has occured (90 seconds)
-func OpenModem(path string, baudRate int, myCall string, initScript string, cmdlineinit string) (p *Modem, err error) {
+func OpenModem(path string, baudRate int, myCall string, initfile string, cmdlineinit string) (p *Modem, err error) {
 
 	p = &Modem{
 		// Initialise variables
@@ -115,22 +117,19 @@ func OpenModem(path string, baudRate int, myCall string, initScript string, cmdl
 		localAddr:  myCall,
 		remoteAddr: "",
 
-		state:    Unknown,
-		stateOld: Unknown,
+		state: Closed,
 
 		device: nil,
 		flags: pflags{
-			exit:        false,
-			closeCalled: false,
-			//disconnected: make(chan struct{}, 1),
+			exit:         false,
+			stopmodem:    false,
 			connected:    make(chan struct{}, 1),
-			closeWriting: make(chan struct{})},
+			closeWaiting: make(chan struct{}, 1)},
 		channelState: cstate{a: 0, b: 0, c: 0, d: 0, e: 0, f: 0},
 		goodChunks:   0,
-		//recvBuf:      make(chan []byte, 0),
-		cmdBuf: make(chan string, 0),
-		//sendBuf:    make(chan byte, MaxSendData),
-		//sendBufLen: 0,
+		cmdBuf:       make(chan string, 0),
+		cmdlineinit:  cmdlineinit,
+		initfile:     initfile,
 	}
 
 	writeDebug("Initialising pactor modem", 1)
@@ -144,37 +143,63 @@ func OpenModem(path string, baudRate int, myCall string, initScript string, cmdl
 		writeDebug(err.Error(), 1)
 		return nil, err
 	}
-	p.hostmodeQuit() // throws error if not in hostmode (e.g. from previous connection)
-	if _, _, err = p.writeAndGetResponse("", -1, false, 10240); err != nil {
-		return nil, err
-	}
 
-	// Make sure, modem is in main menu. Will respose with "ERROR:" when already in
-	// main menu!
-	_, _, err = p.writeAndGetResponse("Quit", -1, false, 1024)
+	err = p.init()
 	if err != nil {
 		return nil, err
+	}
+	// run modem thread
+
+	time.Sleep(3 * time.Second) // give the device a moment to settle, so no commands get lost
+	return p, nil
+}
+
+func (p *Modem) setState(state State) {
+	writeDebug("Setting state to: "+strconv.FormatUint(uint64(state), 10), 1)
+	p.state = state
+}
+
+func (p *Modem) init() (err error) {
+	writeDebug("Entering PACTOR init", 1)
+	// Get modem out of CRC hostmode if it is still in it while starting.
+	//p.stophostmode()
+	//p._write(string([]byte{0xaa, 0xaa, 0x00, 0x01, 0x05, 0x4a, 0x48, 0x4f, 0x53, 0x54, 0x30, 0xfb, 0x3d}))
+	//time.Sleep(100 * time.Millisecond)
+	//_, _, _ = p._read(100)
+
+	if _, _, err = p.writeAndGetResponse("", -1, false, 10240); err != nil {
+		return err
+	}
+
+	// Make sure, modem is in main menu. Will respose with "ERROR:" when already in it -> Just discard answer!
+	_, ans, err := p.writeAndGetResponse("Quit", -1, false, 1024)
+	if err != nil {
+		return err
+	}
+
+	if len(ans) < 2 {
+		return errors.New("Modem does not react to Quit command. Please re-power your modem")
 	}
 
 	// Check if we can determine the modem's type
 	_, ver, err := p.writeAndGetResponse("ver ##", -1, false, 1024)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	re, err := regexp.Compile(`\w#1`)
 	if err != nil {
-		return nil, errors.New("Cannot read SCS modem version string, did you configure the correct serial device? Error: " + err.Error())
+		return errors.New("Cannot read SCS modem version string, did you configure the correct serial device? Error: " + err.Error())
 	}
 	version := strings.ReplaceAll(string(re.Find([]byte(ver))), "#1", "")
 	modem, exists := SCSversion[version]
 
 	if !exists {
-		return nil, errors.New("Found a modem type: " + modem + " which this driver doesn't support. Please contact the author.")
+		return errors.New("Found a modem type: " + ver + " which this driver doesn't support. Please contact the author.")
 	}
 	writeDebug("Found a "+modem+" modem at "+p.devicePath, 0)
 	writeDebug("Running init commands", 1)
 	ct := time.Now()
-	commands := []string{"DD", "RESET", "MYcall " + p.localAddr, "PTCH " + strconv.Itoa(PactorChannel),
+	commands := []string{"DD", "RESTART", "MYcall " + p.localAddr, "PTCH " + strconv.Itoa(PactorChannel),
 		"MAXE 35", "REM 0", "CHOB 0", "PD 1",
 		"ADDLF 0", "ARX 0", "BELL 0", "BC 0", "BKCHR 25", "CMSG 0", "LFIGNORE 0", "LISTEN 0", "MAIL 0", "REMOTE 0",
 		"PDTIMER 5", "STATUS 1",
@@ -182,120 +207,35 @@ func OpenModem(path string, baudRate int, myCall string, initScript string, cmdl
 		"DATE " + ct.Format("020106"), "TIME " + ct.Format("150405")}
 
 	//run additional commands provided on the command line with "init"
-	if cmdlineinit != "" {
-		for _, command := range strings.Split(strings.TrimSuffix(cmdlineinit, "\n"), "\n") {
+	if p.cmdlineinit != "" {
+		for _, command := range strings.Split(strings.TrimSuffix(p.cmdlineinit, "\n"), "\n") {
 			commands = append(commands, command)
 		}
 	}
 
 	for _, cmd := range commands {
 		var res string
+		writeDebug("Sending command to modem: "+cmd, 0)
 		_, res, err = p.writeAndGetResponse(cmd, -1, false, 1024)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if strings.Contains(res, "ERROR") {
-			return nil, fmt.Errorf(`Command "` + cmd + `" not accepted: ` + res)
+			return fmt.Errorf(`Command "` + cmd + `" not accepted: ` + res)
 		}
 	}
 
 	// run additional commands stored in the init script file
-	if initScript != "" {
-		if err = p.runInitScript(initScript); err != nil {
-			return nil, err
+	if p.initfile != "" {
+		if err = p.runInitScript(p.initfile); err != nil {
+			return err
 		}
 	}
-
-	p.hostmodeStart() // throws error when switching successfully to hostmode
-
-	if err = p.runControlLoops(); err != nil {
-		return nil, err
-	}
-
-	return p, nil
-}
-
-/*func (p *Modem) reInit() error {
-	writeDebug("Re-initialzing PACTOR modem. Waiting for threads to finish", 1)
-	p.wg.Wait()
-	p.flags.closed = false
-	p.flags.exit = false
-	writeDebug("Re-initialzing PACTOR modem.", 1)
-
-	//p.recvBuf = make(chan []byte, 0)         // we have to create a new recvBuf
-	//p.sendBuf = make(chan byte, MaxSendData) // clean sendBuf
-	//p.sendBufLen = 0
-	p.state = Unknown
-	p.stateOld = Unknown
-	p.remoteAddr = ""
-
-	p.hostmodeQuit() // throws error if not in hostmode (e.g. from previous connection)
-	if _, _, err := p.writeAndGetResponse("", -1, false, 10240); err != nil {
-		writeDebug(err.Error(), 0)
-		return err
-	}
-
-	// Make sure, modem is in main menu. Will respose with "ERROR:" when already in
-	// main menu!
-	_, _, err := p.writeAndGetResponse("Quit", -1, false, 1024)
-	if err != nil {
-		writeDebug(err.Error(), 0)
-		return err
-	}
-	p.hostmodeStart() // throws error when switching successfully to hostmode
-
-	if err := p.runControlLoops(); err != nil {
-		writeDebug(err.Error(), 0)
-		return err
-	}
-
+	p.flags.stopmodem = false
+	p.setState(Ready)
+	go p.modemThread()
+	//p.flags.exit = false
 	return nil
-
-}*/
-
-// Call a remote target
-//
-// BLOCKING until either connected, pactor states disconnect or timeout occures
-func (p *Modem) call(targetCall string) (err error) {
-	if p.flags.listenMode {
-		return fmt.Errorf("Cannot call a remote station on PACTOR while listen mode is active!")
-	}
-	p.remoteAddr = targetCall
-	if err = p.connect(); err != nil {
-		return err
-	}
-
-	select {
-	case <-p.flags.connected:
-		writeDebug("Link setup successful", 1)
-	/*case <-p.flags.disconnected:
-	p.close()
-	return fmt.Errorf("Link setup failed")*/
-	case <-time.After(90 * time.Second):
-		p.close()
-		return fmt.Errorf("Link setup timed out")
-	}
-
-	return nil
-}
-
-// Accept: when in listening mode, BLOCK until a connection is received.
-func (p *Modem) Accept() (net.Conn, error) {
-	if p.flags.exit {
-		return nil, io.EOF
-	}
-	writeDebug("Entering listener Accept method", 1)
-	p.flags.listenMode = true
-	/*	if p.flags.exit {
-		p.reInit()
-	}*/
-	select {
-	case <-p.flags.connected:
-		writeDebug("incoming connection received", 1)
-		return p, nil
-	}
-	p.flags.listenMode = false
-	return nil, nil
 }
 
 func (p *Modem) Addr() net.Addr {
@@ -318,6 +258,7 @@ func (p *Modem) runInitScript(initScript string) error {
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
+		writeDebug("Sending command to modem: "+scanner.Text(), 0)
 		if _, _, err = p.writeAndGetResponse(scanner.Text(), -1, false, 1024); err != nil {
 			return err
 		}
@@ -330,79 +271,144 @@ func (p *Modem) runInitScript(initScript string) error {
 	return nil
 }
 
-// Start all three controll threads: status thread, send thrad and read thread
-//
-// Wait 1 second to allow all thread to start working before sending
-// data/commands or receiving form the internal buffers
-func (p *Modem) runControlLoops() error {
-	p.wg.Add(1)
-
-	//go p.statusThread()
-	go p.modemThread()
-	//go p.sendThread()
-
-	return nil
-}
-
 func (p *Modem) modemThread() {
 	writeDebug("start modem thread", 1)
-	for {
-		//p.eventHandler()
-		var res []byte
-		chunkSize := 1024
 
-		// RX
-		if channels, err := p.getChannelsWithOutput(); err == nil {
-			for _, c := range channels {
-				_, data, _ := p.writeAndGetResponse("G", c, true, chunkSize)
-				if _, res, err = p.checkResponse(data, c); err != nil {
-					writeDebug("checkResponse returned: "+err.Error(), 1)
-				} else {
-					if res != nil {
-						writeDebug("response: "+string(res)+"\n"+hex.Dump(res), 3)
-						if c == PactorChannel {
-							p.mux.recvbuf.Lock()
-							p.recvBuf.Write(res)
-							p.mux.recvbuf.Unlock()
-							writeDebug("Written to sendbuf", 3)
+	_, _, _ = p.read(1024)
+	_, _, _ = p.writeAndGetResponse("JHOST4", -1, false, 1024)
+	_, _, _ = p.read(1024)
+	// need to wait a second for WA8DED mode to "settle"
+	time.Sleep(time.Second)
+	const chunkSize = 1024
+	p.wg.Add(1)
+	var watchdog uint8
+	for !p.flags.stopmodem {
+		if watchdog == 0 {
+			writeDebug("Modemthread ping", 1)
+		}
+		watchdog += 1
+		if watchdog == 40 {
+			watchdog = 0
+		}
+		// TX commands
+		select {
+		case cmd := <-p.cmdBuf:
+			writeDebug("Write command ("+strconv.Itoa(len(cmd))+"): "+cmd, 1)
+			_, ans, err := p.writeAndGetResponse(cmd, PactorChannel, true, chunkSize)
+			if err != nil {
+				writeDebug("Error when sending Command: "+err.Error(), 0)
+			}
+			writeDebug("Answer from modem: "+ans, 1)
+			// TODO: Catch errors!
+		default:
+
+			// RX
+			var res []byte
+
+			if channels, err := p.getChannelsWithOutput(); err == nil {
+				for _, c := range channels {
+					_, data, _ := p.writeAndGetResponse("G", c, true, chunkSize)
+					if _, res, err = p.checkResponse(data, c); err != nil {
+						writeDebug("checkResponse returned: "+err.Error(), 1)
+					} else {
+						if res != nil {
+							writeDebug("response: "+string(res)+"\n"+hex.Dump(res), 3)
+							switch c {
+							case PactorChannel:
+								p.mux.recvbuf.Lock()
+								p.recvBuf.Write(res)
+								p.mux.recvbuf.Unlock()
+								writeDebug("Written to sendbuf", 3)
+							case 254: //Status update
+								p.chanbusy = int(res[0])&112 == 112 // See PTC-IIIusb manual "STATUS" command
+								writeDebug("PACTOR state: "+strconv.FormatInt(int64(res[0]), 2), 2)
+							default:
+								writeDebug("Channel "+strconv.Itoa(c)+": "+string(res), 1)
+							}
 						}
 					}
 				}
 			}
-		}
-		//p.updatePactorState()
 
-		// TX
-		select {
-		case cmd := <-p.cmdBuf:
-			writeDebug("Write command ("+strconv.Itoa(len(cmd))+"): "+cmd, 2)
-			_, _, _ = p.writeAndGetResponse(cmd, PactorChannel, true, chunkSize)
-			// TODO: Catch errors!
-		default:
-		}
-
-		if p.getNumFramesNotTransmitted() < MaxFrameNotTX {
-			data := p.getSendData()
-			if len(data) > 0 {
-				writeDebug("Write data ("+strconv.Itoa(len(data))+"): "+hex.EncodeToString(data), 2)
-				// TODO: Catch errors!
-				_, _, _ = p.writeAndGetResponse(string(data), PactorChannel, false, chunkSize)
+			// TX data
+			if p.getNumFramesNotTransmitted() < MaxFrameNotTX {
+				data := p.getSendData()
+				if len(data) > 0 {
+					writeDebug("Write data ("+strconv.Itoa(len(data))+"): "+hex.EncodeToString(data), 2)
+					// TODO: Catch errors!
+					_, _, _ = p.writeAndGetResponse(string(data), PactorChannel, false, chunkSize)
+				}
 			}
 		}
-		if p.flags.exit {
-			_ = p.hostmodeQuit()
-			writeDebug("Bailing out of modem thread", 1)
-			break
-		}
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
+	}
+	_, _, err := p.writeAndGetResponse("JHOST0", PactorChannel, true, chunkSize)
+	if err != nil {
+		writeDebug("PACTOR ERROR Could not get modem out of the WA8DED mode: "+err.Error(), 0)
 	}
 
-	// The recvBuf needs to be closed so that pat detects the end of the lifetime of the connection
-	// reInit will be called...
-	//close(p.recvBuf)
-	p.recvBuf.Reset()
+	writeDebug("Modemthread is about to end", 1)
+
+	time.Sleep(100 * time.Millisecond)
 	p.wg.Done()
+	//p.ModemClose()
 	writeDebug("exit modem thread", 1)
+}
+
+func (p *Modem) Close() error {
+	_, file, no, ok := runtime.Caller(1)
+	if ok {
+		writeDebug("PACTOR Close called from "+file+"#"+strconv.Itoa(no), 1)
+	} else {
+		writeDebug("PACTOR Close called", 1)
+	}
+
+	var err error
+	p.closeOnce.Do(func() { err = p.close() })
+	return err
+}
+func (p *Modem) stophostmode() {
+	writeDebug("Stopping WA8DED hostmode", 1)
+	var ok bool
+	var err error
+
+	// Send JHOST0 in CRC-enhanced WA8DED mode syntax
+
+	for ok == false {
+		buff := make([]byte, 100)
+		p.device.Write([]byte{0xaa, 0xaa, 0x00, 0x01, 0x05, 0x4a, 0x48, 0x4f, 0x53, 0x54, 0x30, 0xfb, 0x3d})
+		time.Sleep(100 * time.Millisecond)
+		for {
+			writeDebug("Loop1", 1)
+			n, err := p.device.Read(buff)
+			if err != nil {
+				log.Fatal(err)
+				break
+			}
+			if n == 0 {
+				break
+			}
+			//fmt.Printf("%v", string(buff[:n]))
+		}
+		p.device.Write([]byte("\rRESTART\r"))
+		time.Sleep(1000 * time.Millisecond)
+		for {
+			writeDebug("Loop2", 1)
+			n, err := p.device.Read(buff)
+			if err != nil {
+				log.Fatal(err)
+				break
+			}
+			if n == 0 {
+				break
+			}
+			//fmt.Printf("%v", string(buff[:n]))
+		}
+		ok, err = regexp.Match("cmd:", buff)
+		if err != nil {
+			writeDebug("Error in stophostmode: "+err.Error(), 0)
+		}
+	}
 }
 
 // Get data to be sent from the sendBuf channel.
@@ -443,9 +449,45 @@ func (p *Modem) waitTransmissionFinish(t time.Duration) error {
 	}
 }
 
+// Call a remote target
+//
+// BLOCKING until either connected, pactor states disconnect or timeout occures
+func (p *Modem) call(targetCall string) (err error) {
+	if p.flags.listenMode {
+		return fmt.Errorf("Cannot call a remote station on PACTOR while listen mode is active!")
+	}
+	/*	for p.state == Closing {
+			time.Sleep(time.Second)
+		}
+		if p.state == Closed {
+			err = p.init()
+			if err != nil {
+				return err
+			}
+		}*/
+	//time.Sleep(time.Second) // need to wait here in case the modem got just into WA8DED mode. Otherwise, any further connection attempt fails
+	p.remoteAddr = targetCall
+	if err = p.connect(); err != nil {
+		return err
+	}
+
+	select {
+	case <-p.flags.connected:
+		writeDebug("Link setup successful", 1)
+
+	case <-time.After(90 * time.Second):
+		p.forceDisconnect()
+		return fmt.Errorf("Link setup timed out")
+	}
+
+	return nil
+}
+
 // Send connection request
 func (p *Modem) connect() (err error) {
-	return p.send("C " + p.remoteAddr)
+	writeDebug("PACTOR Connect request to "+p.remoteAddr, 1)
+	err = p.send("C " + p.remoteAddr)
+	return err
 }
 
 // Send disconnect request
@@ -461,24 +503,27 @@ func (p *Modem) disconnect() (err error) {
 
 // Force disconnect
 //
-// Try to disconnect with disconnect() first. Clears all data remaining in
-// modem transmission sendbuf
+// Try to disconnect with disconnect() first.
 func (p *Modem) forceDisconnect() (err error) {
+	_, file, no, _ := runtime.Caller(1)
+	writeDebug("PACTOR force disconnect called from "+file+"#"+strconv.Itoa(no), 1)
 	writeDebug("PACTOR force discconnect command", 0)
 	return p.send("DD")
 }
 
 // Send command to the pactor modem
 func (p *Modem) send(msg string) error {
+	if p.state == Closed {
+		return errors.New("send: connection already closed")
+	}
 	p.cmdBuf <- msg
+	writeDebug("wrote into the cmdbuf: "+msg, 1)
 	return nil
 }
 
 // Close current serial connection. Stop all threads and close all channels.
 func (p *Modem) close() (err error) {
-	// if p.flags.closed {
-	// 	return nil
-	// }
+
 	_, file, no, ok := runtime.Caller(1)
 	if ok {
 		writeDebug("PACTOR close called from "+file+"#"+strconv.Itoa(no), 1)
@@ -486,136 +531,23 @@ func (p *Modem) close() (err error) {
 		writeDebug("PACTOR close called", 1)
 	}
 
-	p.flags.closed = true
-
-	// Channels shouldn't be closed anymore b/c listen mode requires us to keep it the modem structure open
-	// close(p.flags.closeWriting)
-	// close(p.flags.disconnected)
-	// close(p.flags.connected)
-	// close(p.cmdBuf)
-	// close(p.sendBuf)
-
+	p.disconnect()
+	writeDebug("signal modem thread to stop", 1)
+	p.flags.stopmodem = true
 	writeDebug("waiting for all threads to exit", 1)
 	p.wg.Wait()
+	writeDebug("modem thread stopped", 1)
 
-	p.hostmodeQuit()
-	// The serial device shouldn't be closed anymore b/c listen mode requires us to keep it the modem structure open
-	p.device.Close()
-
+	//p.hostmodeQuit()
+	// will not close the serial port as we reuse it
+	//p.device.Close()
+	p.sendBuf.Reset()
+	p.recvBuf.Reset()
+	//p.stophostmode()
+	p.setState(Closed)
 	writeDebug("PACTOR close() finished", 1)
 	return nil
 }
-
-// Start modem hostemode (CRC Hostmode)
-func (p *Modem) hostmodeStart() error {
-	writeDebug("start hostmode", 1)
-	// in case modem is in hostmode, first get it out to have a defined state
-	//	_, _, err := p.writeAndGetResponse("JHOST0", 0, true, 1024)
-	//	_, _, err = p.read(1024)
-	//	time.Sleep(100 * time.Millisecond)
-	_, _, err := p.writeAndGetResponse("JHOST4", -1, false, 1024)
-	_, _, err = p.read(1024)
-	return err
-}
-
-// Quit modem hostmode
-func (p *Modem) hostmodeQuit() error {
-	//wait a bit for other commands to finish
-	time.Sleep(100 * time.Microsecond)
-	_, _, err := p.writeAndGetResponse(string([]byte{0xaa, 0xaa, 0x00, 0x01, 0x05, 0x4a, 0x48, 0x4f, 0x53, 0x54, 0x30, 0xfb, 0x3d}), -1, false, 1024)
-	_, _, err = p.writeAndGetResponse("", -1, false, 1024)
-	return err
-}
-
-// Restart the pactor modem
-func (p *Modem) restart() error {
-	_, _, err := p.writeAndGetResponse("RESTART", -1, false, 1024)
-	return err
-}
-
-// Update the pactor state
-//
-// Set the pactor state according to the state polled form modem
-func (p *Modem) updatePactorState() (err error) {
-	err = p.getChannelsStatus(PactorChannel)
-	if err != nil {
-		writeDebug("Could not read Pactor state", 1)
-		return err
-	}
-
-	debugLevel := 3
-
-	switch p.channelState.f {
-	case 0:
-		writeDebug("Pactor: Disconnected", debugLevel)
-		p.state = Disconnected
-
-	case 1:
-		writeDebug("Pactor: Link Setup", debugLevel)
-		p.state = LinkSetup
-
-	case 2:
-		writeDebug("Pactor: Frame Reject", debugLevel)
-		p.state = Connected
-
-	case 3:
-		writeDebug("Pactor: Disconnect request", debugLevel)
-		p.state = DisconnectReq
-
-	case 4:
-		writeDebug("Pactor: Information transfer", debugLevel)
-		p.state = Connected
-
-	case 5:
-		writeDebug("Pactor: Reject frame sent", debugLevel)
-		p.state = Connected
-
-	case 6:
-		writeDebug("Pactor: Waiting acknowledgement", debugLevel)
-		p.state = Connected
-
-	default:
-		writeDebug("Pactor: Unkown state", 1)
-
-	}
-
-	return nil
-}
-
-// Handle changes in pactor state (events)
-//
-// Set/clear flags according to the event occured. Try to close connection
-// gracefully if connection is lost or disconnect request has been received
-/*func (p *Modem) eventHandler() {
-	if p.state != p.stateOld {
-		if p.state == Connected {
-			setFlag(p.flags.connected)
-			writeDebug("Connection established", 1)
-		}
-		if p.stateOld == LinkSetup && p.state == Disconnected {
-			setFlag(p.flags.disconnected)
-			writeDebug("Link setup failed", 1)
-		}
-		if p.stateOld == Connected && p.state == Disconnected ||
-			p.stateOld == DisconnectReq && p.state == Disconnected {
-			if p.flags.closeCalled != true {
-				p.flags.closeCalled = true
-				writeDebug("Connection lost", 1)
-				p.flags.exit = true
-				//go p.Close() //run as separate thread in order not to block
-			}
-			setFlag(p.flags.disconnected)
-			writeDebug("Disconnect occured", 1)
-			p.flags.exit = true
-		}
-		if p.stateOld == Connected && p.state == DisconnectReq {
-			writeDebug("Disconnect requested", 1)
-			//go p.Close() //run as separate thread in order not to block
-		}
-
-		p.stateOld = p.state
-	}
-}*/
 
 // Set specified flag (channel)
 func setFlag(flag chan struct{}) {
@@ -668,7 +600,7 @@ func (p *Modem) getChannelsWithOutput() (channels []int, err error) {
 		channels = append(channels, int(ch)-1)
 	}
 
-	writeDebug("Channels with output: "+fmt.Sprintf("%#v", channels), 3)
+	writeDebug("Channels with output: "+fmt.Sprintf("%#v", channels), 2)
 
 	return
 }
@@ -701,7 +633,7 @@ func (p *Modem) getChannelsStatus(ch int) (err error) {
 	p.channelState.d, _ = strconv.Atoi(s[3])
 	p.channelState.e, _ = strconv.Atoi(s[4])
 	if ch != PactorChannel {
-		// SCS: not realiable in PACTOR mode
+		// SCS: not reliable in PACTOR mode
 		p.channelState.f, _ = strconv.Atoi(s[5])
 	}
 	writeDebug(fmt.Sprintf("ChannelState: %+v", p.channelState), 2)
@@ -750,27 +682,41 @@ func (p *Modem) checkResponse(resp string, ch int) (n int, data []byte, err erro
 		writeDebug("WARNING: Returned data does not match polled channel\n"+hex.Dump([]byte(resp)), 1)
 		return 0, nil, fmt.Errorf("Channel missmatch")
 	}
+	if int(head[1]) == 1 {
+		writeDebug("*** SUCCESS: "+string(payload), 0)
+	}
+	if int(head[1]) == 2 {
+		writeDebug("*** ERROR: "+string(payload), 0)
+	}
 	if int(head[1]) != 7 && int(head[1]) != 3 {
-		writeDebug("Not a data response: "+string(payload), 1)
+		writeDebug("Message from Modem: "+string(payload), 0)
 		return 0, nil, fmt.Errorf("Not a data response")
 	}
 	if int(head[1]) == 3 { //Link status
+		writeDebug("*** LINK STATUS: "+string(payload), 0)
 		// there is no way to get the remote callsign from the WA8DED data, so we have to parse the link status :(
 		re, err := regexp.Compile(` CONNECTED to \w{2,16}`)
 		if err != nil {
 			writeDebug("Cannot convert connect message to callsign: "+string(payload), 1)
 		} else {
 			p.channelState.f = 4 // mark station as being connected
-			setFlag(p.flags.connected)
 			ans := strings.ReplaceAll(string(re.Find(payload)), " CONNECTED to ", "")
 			if len(ans) > 2 { //callsign consists of 3+ characters
 				p.remoteAddr = ans
 				writeDebug("PACTOR connection to: "+ans, 0)
+				setFlag(p.flags.connected)
+				writeDebug("incoming connection flagged", 1)
+				return 0, nil, nil
 			}
 		}
 		if strings.Contains(string(payload), "DISCONNECTED") {
 			writeDebug("PACTOR DISCONNECTED", 0)
+			if !p.flags.listenMode {
+				p.setState(ToBeClosed)
+			}
+
 			p.channelState.f = 0
+			return 0, nil, nil
 		}
 		return 0, nil, fmt.Errorf("Link data")
 	}
@@ -801,8 +747,6 @@ func (p *Modem) writeAndGetResponse(msg string, ch int, isCommand bool, chunkSiz
 	writeDebug("wagr: Channel: "+strconv.Itoa(ch)+"; isCommand: "+strconv.FormatBool(isCommand)+"\n"+hex.Dump([]byte(msg)), 3)
 	var err error
 
-	//p.mux.pactor.Lock()
-	//defer p.mux.pactor.Unlock()
 	var n int
 	var str string
 	if ch < 0 {
@@ -828,11 +772,14 @@ func (p *Modem) writeAndGetResponse(msg string, ch int, isCommand bool, chunkSiz
 		writeDebug(fmt.Sprintf("response: %s\n%s", str, hex.Dump(tmp)), 2)
 		return n, str, err
 	} else {
-		err = p._writeChannel(msg, ch, isCommand)
+		err = p.writeChannel(msg, ch, isCommand)
 		if err != nil {
 			return 0, "", err
 		}
-		time.Sleep(30 * time.Millisecond)
+		if msg == "JHOST0" { //looks like the SCS modems do not answer to JHOST0, although the standard defines it
+			return 0, "", nil
+		}
+		time.Sleep(50 * time.Millisecond)
 		writeDebug("Decode WA8DED", 4)
 		buf := []byte{}
 		valid := false
@@ -841,8 +788,8 @@ func (p *Modem) writeAndGetResponse(msg string, ch int, isCommand bool, chunkSiz
 			if bytes.Compare(buf, []byte{170, 170, 170, 85}) == 0 { // check for re-request 	#170#170#170#85
 				// packet was re-requested!!
 				writeDebug("Re-Request magic received", 3)
-				buf = []byte{}                            //delete the re-request packet
-				err = p._writeChannel(msg, ch, isCommand) // write command again
+				buf = []byte{}                           //delete the re-request packet
+				err = p.writeChannel(msg, ch, isCommand) // write command again
 				if err != nil {
 					return 0, "", err
 				}
@@ -870,8 +817,6 @@ func (p *Modem) writeAndGetResponse(msg string, ch int, isCommand bool, chunkSiz
 				}
 			}
 		}
-		//str = string(buf)
-		//n = len(buf)
 
 	}
 
@@ -887,6 +832,14 @@ func (p *Modem) writeAndGetResponse(msg string, ch int, isCommand bool, chunkSiz
 func (p *Modem) Read(d []byte) (int, error) {
 	writeDebug("Read() called", 3)
 	writeDebug("len(d) is: "+strconv.Itoa(len(d)), 3)
+	if p.state == Closed {
+		writeDebug("Reading from a closed PACTOR connection", 1)
+		return 0, io.EOF
+	}
+	if p.state == ToBeClosed {
+		writeDebug("Sending EOF to close connection after Call", 1)
+		return 0, io.EOF
+	}
 	p.mux.read.Lock()
 	defer p.mux.read.Unlock()
 
@@ -896,6 +849,18 @@ func (p *Modem) Read(d []byte) (int, error) {
 
 	timeout := 0
 	for p.recvBuf.Len() == 0 {
+		if p.state == Closed {
+			writeDebug("Reading from a closed PACTOR connection", 1)
+			return 0, io.EOF
+		}
+		if p.state == ToBeClosed {
+			writeDebug("Sending EOF to close connection after Call", 1)
+			return 0, io.EOF
+		}
+		if p.channelState.f == 0 {
+			writeDebug("sending EOF as connection is not active", 1)
+			return 0, io.EOF
+		}
 	}
 	p.mux.recvbuf.Lock()
 	l := p.recvBuf.Len()
@@ -925,12 +890,7 @@ func (p *Modem) Read(d []byte) (int, error) {
 		time.Sleep(time.Second)
 	}
 
-	//if len(data) > len(d) {
-	//	panic("too large") //TODO: Handle
-	//}
-
 	for i, b := range data {
-		//writeDebug("i: "+strconv.Itoa(i)+" b:"+string(b), 3)
 		d[i] = byte(b)
 	}
 
@@ -946,6 +906,10 @@ func (p *Modem) Read(d []byte) (int, error) {
 // send sendbuf
 func (p *Modem) Write(d []byte) (int, error) {
 	writeDebug("Write() len: "+strconv.Itoa(len(d))+" data: "+string(d), 3)
+	if p.state == Closed {
+		writeDebug("Writing to a close PACTOR connection", 1)
+		return 0, io.EOF
+	}
 	p.mux.write.Lock()
 	defer p.mux.write.Unlock()
 
@@ -966,7 +930,7 @@ func (p *Modem) Write(d []byte) (int, error) {
 			p.mux.sendbuf.Unlock()
 		}
 		/*select {
-		case <-p.flags.closeWriting:
+		case <-p.flags.closeWaiting:
 			return 0, fmt.Errorf("Writing on closed connection")
 		case p.sendBuf <- b:
 		}*/
@@ -983,10 +947,6 @@ func (p *Modem) Write(d []byte) (int, error) {
 //
 // Will throw error if remaining frames could not bet sent within 120s
 func (p *Modem) Flush() (err error) {
-	//if p.state != Connected {
-	//	return fmt.Errorf("Flush a closed connection")
-	//}
-
 	writeDebug("Flush called", 2)
 	if err = p.waitTransmissionFinish(120 * time.Second); err != nil {
 		writeDebug(err.Error(), 2)
@@ -998,18 +958,24 @@ func (p *Modem) Flush() (err error) {
 //
 // Will abort ("dirty disconnect") after 60 seconds if normal "disconnect" have
 // not succeeded yet.
-func (p *Modem) Close() error {
+/*func (p *Modem) ModemClose() error {
 	_, file, no, ok := runtime.Caller(1)
 	if ok {
-		writeDebug("PACTOR Close called from "+file+"#"+strconv.Itoa(no), 1)
+		writeDebug("PACTOR ModemClose called from "+file+"#"+strconv.Itoa(no), 1)
 	} else {
-		writeDebug("PACTOR Close called", 1)
+		writeDebug("PACTOR ModemClose called", 1)
 	}
-
-	if p == nil || p.flags.exit { // already closed, nothing to do.
-		writeDebug("Modem instance already closed.", 1)
+	//prevent close from being called too often
+	if p.state == Closing {
+		writeDebug("Close() call already running", 1)
+		time.Sleep(time.Second)
+		return nil // not sure if one would better call io.EOF here
+	}
+	if p.state == Closed {
+		writeDebug("Close() called on a already closed interface", 1)
 		return nil
 	}
+	p.setState(Closing)
 
 	if p.channelState.f != 0 {
 		p.disconnect()
@@ -1020,45 +986,47 @@ func (p *Modem) Close() error {
 			if timeout <= 20 {
 				if p.channelState.f == 0 {
 					writeDebug("Disconnect successful", 1)
-					if !p.flags.listenMode {
-						p.flags.exit = true
-						p.close()
-					} else {
-						writeDebug("Close() called in Listen Mode, will keep modem", 2)
-					}
-					break
+					//if !p.flags.listenMode {
+					p.close()
+					time.Sleep(500 * time.Millisecond) // wait half a second
+					writeDebug("Close() finished.", 1)
+					return nil
 				}
 			} else {
 				p.forceDisconnect()
-				//p.flags.exit = true
+				time.Sleep(500 * time.Millisecond) // wait half a second
 				p.close()
-				return fmt.Errorf("Disconnect timed out")
+				//p = nil
+				return nil
 			}
 			time.Sleep(time.Second)
 		}
 	} else { // PACTOR modem is _NOT_ connected and Close() is called, so probably the user wants to end listen mode
 		if p.flags.listenMode {
-			writeDebug("ListenMode should finish", 1)
-			p.flags.exit = true
-			//p = nil
+			writeDebug("Close called in ListenMode", 1)
+			setFlag(p.flags.closeWaiting)
 			p.close()
-			time.Sleep(500 * time.Millisecond) // wait half a second
-			p.hostmodeQuit()
-			writeDebug("Close() finished.", 1)
-			return io.EOF
+			return nil
 		}
+		p.close()
+		writeDebug("Close() finished.", 1)
+		return nil
+
 	}
-	writeDebug("Close() finished.", 1)
+	writeDebug("end of Close reached, shouldn't happen", 0)
 	return nil
 }
-
+*/
 // TxBufferLen returns the number of bytes in the out sendbuf queue.
-//
 func (p *Modem) TxBufferLen() int {
 	p.mux.bufLen.Lock()
 	defer p.mux.bufLen.Unlock()
 	writeDebug("TxBufferLen called ("+strconv.Itoa(p.sendBuf.Len())+" bytes remaining in sendbuf)", 2)
 	return p.sendBuf.Len() + (p.getNumFramesNotTransmitted() * MaxSendData)
+}
+
+func (p *Modem) Busy() bool {
+	return p.chanbusy
 }
 
 // Write to serial connection (thread safe)
@@ -1087,7 +1055,8 @@ func (p *Modem) _write(cmd string) error {
 	for {
 		status, err := p.device.GetModemStatusBits()
 		if err != nil {
-			log.Fatal("GetModemStatusBits failed")
+			writeDebug("GetModemStatusBits failed. cmd: "+cmd+" Error: "+err.Error(), 1)
+			return err
 		}
 		if status.CTS {
 			for {
@@ -1103,22 +1072,18 @@ func (p *Modem) _write(cmd string) error {
 			break
 		}
 	}
-	/*	if _, err := p.device.Write([]byte(cmd + "\r")); err != nil {
-		writeDebug(err.Error(), 2)
-		return err
-	}*/
-	//time.Sleep(5 * time.Millisecond)
+
 	return nil
 }
 
 // Write channel to serial connection (thread safe)
 //
 // No other read/write operation allowed during this time
-func (p *Modem) writeChannel(msg string, ch int, isCommand bool) error {
+/*func (p *Modem) writeChannel(msg string, ch int, isCommand bool) error {
 	p.mux.pactor.Lock()
 	defer p.mux.pactor.Unlock()
 	return p._writeChannel(msg, ch, isCommand)
-}
+}*/
 
 // *** Helper functions for the CRC hostmode
 // Allthough these functions are small, I prefer to keep their functionality
@@ -1189,7 +1154,7 @@ func docrc(msg string) string {
 // Write channel to serial connection (NOT thread safe)
 //
 // If used, make shure to lock/unlock p.mux.pactor mutex!
-func (p *Modem) _writeChannel(msg string, ch int, isCommand bool) error {
+func (p *Modem) writeChannel(msg string, ch int, isCommand bool) error {
 	if err := p.checkSerialDevice(); err != nil {
 		writeDebug(err.Error(), 1)
 		return err
@@ -1231,7 +1196,7 @@ func (p *Modem) _writeChannel(msg string, ch int, isCommand bool) error {
 	bs, _ := hex.DecodeString(docrc(fmt.Sprintf("%s%s%s%s", c, d, l, s)))*/
 	writeDebug("write channel: \n"+hex.Dump(o), 2)
 
-	if err := p._write(string(o)); err != nil {
+	if err := p.write(string(o)); err != nil {
 		writeDebug(err.Error(), 2)
 		return err
 	}

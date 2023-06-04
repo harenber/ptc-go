@@ -14,18 +14,17 @@ import (
 // MaxFrameNotTX: Max. number of frames not transmitted at time.
 const (
 	SerialTimeout = 1
-	PactorChannel = 31
+	PactorChannel = 4
 	MaxSendData   = 255
 	MaxFrameNotTX = 2
 )
 
 // Pactor states
 const (
-	Unknown State = iota
-	LinkSetup
-	Connected
-	DisconnectReq
-	Disconnected
+	Closed State = iota
+	Closing
+	ToBeClosed
+	Ready
 )
 
 type State uint8
